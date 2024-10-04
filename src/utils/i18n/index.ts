@@ -13,10 +13,15 @@ const FALLBACK_CHAIN = new Map(
   }),
 )
 
-export function createMcwI18n(files: Record<string, { default: Record<string, string> }>) {
-  const locale =
+export function getLocale() {
+  return (
     new URLSearchParams(window.location.hash.substring(2)).get('locale') ??
     window.navigator.language.split('-')[0]
+  )
+}
+
+export function createMcwI18n(files: Record<string, { default: Record<string, string> }>) {
+  const locale = getLocale()
   const fallback = FALLBACK_CHAIN.get(locale) ?? FALLBACK_CHAIN.get('default')!
   console.log('locale:', locale, 'fallback:', fallback)
 
