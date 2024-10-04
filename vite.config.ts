@@ -54,7 +54,13 @@ export default defineConfig({
   plugins: [
     vueMacros({
       plugins: {
-        vue: vue(),
+        vue: vue({
+          template: {
+            compilerOptions: {
+              isCustomElement: (tag) => tag.includes('-component')
+            }
+          }
+        }),
       },
     }),
     process.env.VITEST ? undefined : vueDevTools(),
