@@ -1,15 +1,16 @@
 import type { RandomSource } from '@/tools/lootTable/random.ts'
-
-export class ItemStack {
-  item: string
-  count: number
-  components: Map<string, any> = new Map<string, any>()
-
-  constructor(item: string, count: number) {
-    this.item = item
-    this.count = count
-  }
-}
+import {
+  ItemStack,
+  createEnchantmentComponent,
+  getEnchantmentLevel,
+} from '@/tools/lootTable/item.ts'
+import {
+  ENCHANTMENTS_COSTS,
+  ENCHANTMENT_PRIMARY_ITEMS,
+  ENCHANTMENT_SUPPORT_ITEMS,
+  ENCHANTMENT_WEIGHT,
+  INCOMPATIBLE_ENCHANTMENTS,
+} from '@/tools/lootTable/constants.ts'
 
 export class PoolIndexedLootResult {}
 
@@ -23,8 +24,29 @@ export class LootContextJava {
     this.random = random
   }
 
-  // Loot Params
   luck: number = 0
+
+  // Level Data
+  dayTime: number = 0
+  raining: boolean = false
+  thundering: boolean = false
+
+  // Loot Params
+  this_entity?: any
+  last_damage_player?: any
+  damage_source?: any
+  attacking_entity?: any
+  direct_attacking_entity?: any
+  origin?: { x: number; y: number; z: number }
+  block_state?: { block: string; properties?: Record<string, string | number | boolean> }
+  block_entity?: any
+  tool?: ItemStack
+  explosion_radius?: number
+  enchantment_level?: number
+  enchantment_active?: boolean
+
+  // Generated from loot params
+  enchantments: Map<string, number> = new Map<string, number>() // From attacking_entity
 }
 
 export interface LootTableJava {
@@ -94,7 +116,7 @@ interface LootItemConditionJava {
   condition: string
   terms?: LootItemConditionJava[] // all_of, any_of
   block?: string // block_state_property
-  properties?: Record<string, string | { min: string; max: string }> // block_state_property
+  properties?: Record<string, string | { min?: string; max?: string }> // block_state_property
   predicate?: any // damage_source_properties, entity_properties, location_check, match_tool
   active?: boolean // enchantment_active_check
   entity?: string // entity_properties, entity_scores
@@ -320,13 +342,25 @@ const lootItemConditionJava: Record<
 > = {
   all_of: (context, params) => params.terms!.every((t) => computeLootItemConditionJava(context, t)),
   any_of: (context, params) => params.terms!.some((t) => computeLootItemConditionJava(context, t)),
-  block_state_property: () => true, // NOT SUPPORTED NOW
+  block_state_property: (context, params) => {
+    if (!context.block_state) return false
+    if (context.block_state.block !== params.block!) return false
+    if (!params.properties) return true
+    const d = context.block_state!.properties ?? {}
+    return Object.entries(params.properties).every((v) => {
+      if (typeof v[1] === 'string') return d[v[0]] === v[1]
+      const min = Number(v[1].min ?? '0')
+      const max = Number(v[1].max ?? '2147483647')
+      const now = Number(d[v[0]])
+      return min <= now && max >= now
+    })
+  },
   damage_source_properties: () => true, // NOT SUPPORTED NOW
-  enchantment_active_check: () => true, // NOT SUPPORTED NOW
+  enchantment_active_check: (context, params) => context.enchantment_active === params.active!,
   entity_properties: () => true, // NOT SUPPORTED NOW
   entity_scores: () => true, // NOT SUPPORTED NOW
   inverted: (context, params) => !computeLootItemConditionJava(context, params.term!),
-  killed_by_player: () => true, // NOT SUPPORTED NOW
+  killed_by_player: (context) => context.last_damage_player,
   location_check: () => true, // NOT SUPPORTED NOW
   match_tool: () => true, // NOT SUPPORTED NOW
   random_chance: (context, params) => {
@@ -334,11 +368,56 @@ const lootItemConditionJava: Record<
     return context.random.nextFloat() < chance
   },
   random_chance_with_enchanted_bonus: () => true, // NOT SUPPORTED NOW
-  survives_explosion: () => true, // NOT SUPPORTED NOW
-  table_bonus: () => true, // NOT SUPPORTED NOW
-  time_check: () => true, // NOT SUPPORTED NOW
-  value_check: () => true, // NOT SUPPORTED NOW
-  weather_check: () => true, // NOT SUPPORTED NOW
+  survives_explosion: (context) => {
+    if (!context.explosion_radius) return true
+    return context.random.nextFloat() <= 1 / context.explosion_radius
+  },
+  table_bonus: (context, params) => {
+    const level = context.tool ? getEnchantmentLevel(context.tool, params.enchantment!) : 0
+    const chances = params.chances![Math.min(level, params.chances!.length - 1)]
+    return context.random.nextFloat() < chances
+  },
+  time_check: (context, params) => {
+    let time = context.dayTime
+    if (params.period) time %= params.period
+    const value = params.value
+    const min =
+      typeof value === 'number'
+        ? value!
+        : value!.min
+          ? getNumberIntJava(context, value!.min)
+          : -Infinity
+    const max =
+      typeof value === 'number'
+        ? value!
+        : value!.max
+          ? getNumberIntJava(context, value!.max)
+          : Infinity
+    return time >= min && time <= max
+  },
+  value_check: (context, params) => {
+    const value = getNumberIntJava(context, params.value! as NumberProviderJava | number)
+    const range = params.range!
+    const min =
+      typeof range === 'number'
+        ? range!
+        : range!.min
+          ? getNumberIntJava(context, range!.min)
+          : -Infinity
+    const max =
+      typeof range === 'number'
+        ? range!
+        : range!.max
+          ? getNumberIntJava(context, range!.max)
+          : Infinity
+    return value >= min && value <= max
+  },
+  weather_check: (context, params) => {
+    return (
+      (!params.raining || params.raining === context.raining) &&
+      (!params.thundering || params.thundering === context.thundering)
+    )
+  },
 }
 
 function computeLootItemConditionJava(
@@ -356,14 +435,126 @@ const lootItemFunctionJava: Record<
   string,
   (context: LootContextJava, itemStack: ItemStack, params: LootItemFunctionJava) => ItemStack
 > = {
-  apply_bonus: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
+  apply_bonus: (context, itemStack, params) => {
+    if (!context.tool) return itemStack
+    const level = getEnchantmentLevel(context.tool, params.enchantment!)
+    switch (params.formula!) {
+      case 'uniform_bonus_count':
+        itemStack.count += context.random.nextIntWithBound(
+          params.parameters!.bonusMultiplier! * level + 1,
+        )
+        break
+      case 'ore_drops':
+        if (level > 0) {
+          const num = context.random.nextIntWithBound(level + 2) - 1
+          itemStack.count *= (num < 0 ? 0 : num) + 1
+        }
+        break
+      case 'binomial_with_bonus_count':
+        for (let i = 0; i < level + params.parameters!.extraRounds!; i++)
+          if (context.random.nextFloat() < params.parameters!.probability!) itemStack.count++
+        break
+    }
+    return itemStack
+  },
   copy_components: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
   copy_custom_data: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
   copy_name: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
   copy_state: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
-  enchanted_count_increase: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
-  enchant_randomly: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
-  enchant_with_levels: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
+  enchanted_count_increase: (context, itemStack, params) => {
+    if (!context.enchantments.has(params.enchantment!)) return itemStack
+    const level = context.enchantments.get(params.enchantment!)!
+    itemStack.count += Math.floor(level * getNumberFloatJava(context, params.value!))
+    if (params.limit) itemStack.count = Math.min(itemStack.count, params.limit as number)
+    return itemStack
+  },
+  enchant_randomly: (context, itemStack, params) => {
+    const filterCompat = itemStack.item !== 'book' && params.only_compatible
+    const select = params.options!.filter(
+      (s) => !filterCompat || ENCHANTMENT_SUPPORT_ITEMS[s].includes(itemStack.item),
+    )
+    if (select.length === 0) return itemStack
+    const selected = select[context.random.nextIntWithBound(select.length)]
+    if (itemStack.item === 'book') itemStack = new ItemStack('enchanted_book', 1)
+    const enchantments = itemStack.getOrCreateComponent(
+      itemStack.item === 'enchanted_book' ? 'stored_enchantments' : 'enchantments',
+      createEnchantmentComponent,
+    )
+    const level = context.random.nextIntWithBound(ENCHANTMENTS_COSTS[selected].length) + 1
+    if (enchantments.levels.has(selected)) {
+      if (level >= enchantments.levels.get(selected)!) enchantments.levels.set(selected, level)
+    } else enchantments.levels.set(selected, level)
+    return itemStack
+  },
+  enchant_with_levels: (context, itemStack, params) => {
+    let level = getNumberIntJava(context, params.levels!)
+    if (!itemStack.components.has('enchantable')) return itemStack
+    const enchantValue = itemStack.components.get('enchantable').value as number
+    const isBook = itemStack.item === 'book'
+    if (itemStack.item === 'book') itemStack = new ItemStack('enchanted_book', 1)
+    const pValue = Math.floor(enchantValue / 4) + 1
+    level += 1 + context.random.nextIntWithBound(pValue) + context.random.nextIntWithBound(pValue)
+    const factor = (context.random.nextFloat() + context.random.nextFloat() - 1) * 0.15
+    level *= 1 + factor
+    level = Math.round(level)
+    level = level < 0 ? 0 : level > 2147483647 ? 2147483647 : level
+    let available: [string, number][] = []
+    params
+      .options!.filter((s) => isBook || ENCHANTMENT_PRIMARY_ITEMS[s].includes(itemStack.item))
+      .forEach((e) => {
+        for (let i = ENCHANTMENTS_COSTS[e].length - 1; i >= 0; i--) {
+          if (ENCHANTMENTS_COSTS[e][i][0] <= level && ENCHANTMENTS_COSTS[e][i][1] >= level) {
+            available.push([e, i + 1])
+            break
+          }
+        }
+      })
+    if (available.length === 0) return itemStack
+    const selectedEnchants = []
+    let totalWeight = 0
+    available.forEach(([k]) => (totalWeight += ENCHANTMENT_WEIGHT[k]))
+    if (totalWeight > 0) {
+      let sel = context.random.nextIntWithBound(totalWeight)
+      let i = 0
+      for (; i < available.length; i++) {
+        sel -= ENCHANTMENT_WEIGHT[available[i][0]]
+        if (sel < 0) break
+      }
+      selectedEnchants.push(available[i])
+    }
+    while (context.random.nextIntWithBound(50) <= level) {
+      if (selectedEnchants.length > 0) {
+        const enchant = selectedEnchants[selectedEnchants.length - 1][0]
+        available = available
+          .filter(([k]) => k !== enchant)
+          .filter(([k]) => !(INCOMPATIBLE_ENCHANTMENTS[k]?.includes(k) ?? false))
+      }
+      if (available.length === 0) break
+      totalWeight = 0
+      available.forEach(([k]) => (totalWeight += ENCHANTMENT_WEIGHT[k]))
+      if (totalWeight > 0) {
+        let sel = context.random.nextIntWithBound(totalWeight)
+        let i = 0
+        for (; i < available.length; i++) {
+          sel -= ENCHANTMENT_WEIGHT[available[i][0]]
+          if (sel < 0) break
+        }
+        selectedEnchants.push(available[i])
+      }
+      level = Math.floor(level / 2)
+    }
+    const enchantments = itemStack.getOrCreateComponent(
+      itemStack.item === 'enchanted_book' ? 'stored_enchantments' : 'enchantments',
+      createEnchantmentComponent,
+    )
+    for (const enchant of selectedEnchants) {
+      if (enchantments.levels.has(enchant[0])) {
+        if (level >= enchantments.levels.get(enchant[0])!)
+          enchantments.levels.set(enchant[0], enchant[1])
+      } else enchantments.levels.set(enchant[0], enchant[1])
+    }
+    return itemStack
+  }, // NOT SUPPORTED NOW
   exploration_map: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
   explosion_decay: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
   fill_player_head: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
@@ -392,7 +583,18 @@ const lootItemFunctionJava: Record<
     return itemStack
   },
   set_custom_data: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
-  set_damage: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
+  set_damage: (context, itemStack, params) => {
+    if (!itemStack.components.has('max_damage') || !itemStack.components.has('damage'))
+      return itemStack
+    const maxDamage = itemStack.components.get('max_damage')
+    const damage = itemStack.components.get('damage')
+    const base = params.add ? 1 - damage / maxDamage : 0
+    let percent = getNumberFloatJava(context, params.damage!) + base
+    percent = percent < 0 ? 0 : percent > 1 ? 1 : percent
+    const result = 1 - percent
+    itemStack.components.set('damage', Math.floor(result * maxDamage))
+    return itemStack
+  },
   set_enchantments: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
   set_firework_explosion: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
   set_fireworks: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
@@ -471,6 +673,22 @@ function createItemStack(entry: LootPoolEntriesJava, lootContext: LootContextJav
   return []
 }
 
+export function splitItemStack(itemStacks: ItemStack[]) {
+  return itemStacks
+    .map((i) => {
+      const stackSize = i.components.get('max_stack_size') ?? 64
+      if (i.count <= stackSize) return [i]
+      const output = []
+      while (i.count > stackSize) {
+        output.push(i.copyWithCount(stackSize))
+        i.count -= stackSize
+      }
+      output.push(i)
+      return output
+    })
+    .flat()
+}
+
 export function getRandomItems(lootTable: LootTableJava, lootContext: LootContextJava) {
   const result: ItemStack[] = []
   for (const pool of lootTable.pools!) {
@@ -515,5 +733,7 @@ export function getRandomItems(lootTable: LootTableJava, lootContext: LootContex
       )
     }
   }
-  return result.map((i) => computeLootItemFunctionJava(lootContext, i, lootTable.functions))
+  return splitItemStack(
+    result.map((i) => computeLootItemFunctionJava(lootContext, i, lootTable.functions)),
+  )
 }
