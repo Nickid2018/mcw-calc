@@ -1,6 +1,9 @@
 import type { RandomSource } from '@/tools/lootTable/random.ts'
 import {
+  ITEM_DEFAULT_COMPONENTS,
   ItemStack,
+  componentDeepCopy,
+  createAttributeModifiersComponent,
   createEnchantmentComponent,
   getEnchantmentLevel,
 } from '@/tools/lootTable/item.ts'
@@ -77,7 +80,7 @@ interface LootPoolEntriesJava {
   value?: LootTableJava // loot_table
 }
 
-interface NumberProviderJava {
+export interface NumberProviderJava {
   type: string
   n?: NumberProviderJava | number // binomial INT
   p?: NumberProviderJava | number // binomial FLOAT
@@ -205,7 +208,7 @@ interface LootItemFunctionJava {
     amount: number | NumberProviderJava // FLOAT
     attribute: string
     id: string
-    operation: string
+    operation: 'add_value' | 'add_multiplied_base' | 'add_multiplied_total'
     slot: string | string[]
   }[] // set_attributes
   replace?: boolean // set_attributes
@@ -215,7 +218,7 @@ interface LootItemFunctionJava {
   generation?: number // set_book_cover
   title?: string | { filtered: string; raw: string } // set_book_cover
   value?: NumberProviderJava | number // set_custom_model_data INT
-  components?: Record<string, any[]> // set_components
+  components?: Record<string, any> // set_components
   entries?: LootPoolEntriesJava[] // set_contents
   add?: boolean // set_count, set_damage
   tag?: string | any // set_custom_data
@@ -480,7 +483,10 @@ const lootItemFunctionJava: Record<
       itemStack.item === 'enchanted_book' ? 'stored_enchantments' : 'enchantments',
       createEnchantmentComponent,
     )
-    const level = context.random.nextIntWithBound(ENCHANTMENTS_COSTS[selected].length) + 1
+    const level =
+      ENCHANTMENTS_COSTS[selected].length === 1
+        ? 1
+        : context.random.nextIntWithBound(ENCHANTMENTS_COSTS[selected].length) + 1
     if (enchantments.levels.has(selected)) {
       if (level >= enchantments.levels.get(selected)!) enchantments.levels.set(selected, level)
     } else enchantments.levels.set(selected, level)
@@ -554,9 +560,17 @@ const lootItemFunctionJava: Record<
       } else enchantments.levels.set(enchant[0], enchant[1])
     }
     return itemStack
-  }, // NOT SUPPORTED NOW
+  },
   exploration_map: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
-  explosion_decay: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
+  explosion_decay: (context, itemStack) => {
+    if (context.explosion_radius) {
+      const p = 1 / context.explosion_radius
+      let count = 0
+      for (let i = 0; i < itemStack.count; i++) if (context.random.nextFloat() <= p) count++
+      itemStack.count = count
+    }
+    return itemStack
+  },
   fill_player_head: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
   filtered: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
   furnace_smelt: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
@@ -571,11 +585,45 @@ const lootItemFunctionJava: Record<
   modify_contents: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
   sequence: (context, itemStack, params) =>
     computeLootItemFunctionJava(context, itemStack, params.functions!),
-  set_attributes: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
+  set_attributes: (context, itemStack, params) => {
+    const attributes = itemStack.getOrCreateComponent(
+      'attribute_modifiers',
+      createAttributeModifiersComponent,
+    )
+    if (params.replace ?? true) attributes.modifiers = []
+    for (const modifier of params.modifiers!) {
+      const slots = modifier.slot
+      let slot
+      if (typeof slots === 'string') {
+        slot = slots
+        context.random.nextIntWithBound(1)
+      } else {
+        slot = slots[context.random.nextIntWithBound(slots.length)]
+      }
+      attributes.modifiers = attributes.modifiers.filter((m) => m.id !== modifier.id)
+      attributes.modifiers.push({
+        amount: getNumberFloatJava(context, modifier.amount),
+        attribute: modifier.attribute,
+        id: modifier.id,
+        operation: modifier.operation,
+        slot,
+      })
+    }
+    return itemStack
+  },
   set_banner_pattern: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
   set_book_cover: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
-  set_custom_model_data: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
-  set_components: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
+  set_custom_model_data: (context, itemStack, params) => {
+    itemStack.components.set('custom_model_data', getNumberIntJava(context, params.value!))
+    return itemStack
+  },
+  set_components: (_, itemStack, params) => {
+    Object.entries(params.components!).forEach(([k, v]) => {
+      if (k.startsWith('!')) itemStack.components.delete(k.substring(1))
+      else itemStack.components.set(k, componentDeepCopy[k]?.(v) ?? v)
+    })
+    return itemStack
+  },
   set_contents: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
   set_count: (context, itemStack, params) => {
     const num = getNumberIntJava(context, params.count!)
@@ -595,19 +643,53 @@ const lootItemFunctionJava: Record<
     itemStack.components.set('damage', Math.floor(result * maxDamage))
     return itemStack
   },
-  set_enchantments: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
+  set_enchantments: (context, itemStack, params) => {
+    if (itemStack.item === 'book') {
+      const sourceComponents = itemStack.components
+      itemStack = new ItemStack('enchanted_book', itemStack.count)
+      sourceComponents.forEach((v, k) => {
+        if (ITEM_DEFAULT_COMPONENTS.book[k] && ITEM_DEFAULT_COMPONENTS.book[k] !== v)
+          itemStack.components.set(k, v)
+      })
+    }
+    const enchantments = itemStack.getOrCreateComponent(
+      itemStack.item === 'enchanted_book' ? 'stored_enchantments' : 'enchantments',
+      createEnchantmentComponent,
+    )
+    Object.entries(params.enchantments!).forEach(([k, v]) => {
+      const base = params.add ? (enchantments.levels.get(k) ?? 0) : 0
+      const value = base + getNumberIntJava(context, v)
+      enchantments.levels.set(k, value > 255 ? 255 : value < 0 ? 0 : value)
+    })
+    return itemStack
+  },
   set_firework_explosion: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
   set_fireworks: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
   set_instrument: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
   set_item: (_, itemStack, params) => {
-    itemStack.item = params.item!
+    const sourceComponents = itemStack.components
+    const sourceName = itemStack.item
+    itemStack = new ItemStack(params.item!, itemStack.count)
+    sourceComponents.forEach((v, k) => {
+      if (ITEM_DEFAULT_COMPONENTS[sourceName][k] && ITEM_DEFAULT_COMPONENTS[sourceName][k] !== v)
+        itemStack.components.set(k, v)
+    })
     return itemStack
   },
   set_loot_table: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
   set_lore: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
   set_name: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
-  set_ominous_bottle_amplifier: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
-  set_potion: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
+  set_ominous_bottle_amplifier: (context, itemStack, params) => {
+    const value = getNumberIntJava(context, params.amplifier!)
+    itemStack.components.set('ominous_bottle_amplifier', value > 4 ? 4 : value < 0 ? 0 : value)
+    return itemStack
+  },
+  set_potion: (_, itemStack, params) => {
+    itemStack.components.set('potion_contents', {
+      potion: params.id!,
+    })
+    return itemStack
+  },
   set_stew_effect: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
   set_writable_book_pages: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
   set_written_book_pages: (_, itemStack) => itemStack, // NOT SUPPORTED NOW
@@ -678,7 +760,7 @@ export function splitItemStack(itemStacks: ItemStack[]) {
     .map((i) => {
       const stackSize = i.components.get('max_stack_size') ?? 64
       if (i.count <= stackSize) return [i]
-      const output = []
+      const output: ItemStack[] = []
       while (i.count > stackSize) {
         output.push(i.copyWithCount(stackSize))
         i.count -= stackSize
@@ -686,7 +768,7 @@ export function splitItemStack(itemStacks: ItemStack[]) {
       output.push(i)
       return output
     })
-    .flat()
+    .flat() as ItemStack[]
 }
 
 export function getRandomItems(lootTable: LootTableJava, lootContext: LootContextJava) {
@@ -736,4 +818,51 @@ export function getRandomItems(lootTable: LootTableJava, lootContext: LootContex
   return splitItemStack(
     result.map((i) => computeLootItemFunctionJava(lootContext, i, lootTable.functions)),
   )
+}
+
+export function fillContainer(
+  availableSlots: number[],
+  lootTable: LootTableJava,
+  lootContext: LootContextJava,
+) {
+  const items = getRandomItems(lootTable, lootContext)
+  availableSlots = [...availableSlots]
+  availableSlots.sort((a, b) => a - b) // THIS IS JAVASCRIPT
+  for (let i = availableSlots.length; i > 1; i--) {
+    const sel = lootContext.random.nextIntWithBound(i)
+    const swap = availableSlots[i - 1]
+    availableSlots[i - 1] = availableSlots[sel]
+    availableSlots[sel] = swap
+  }
+  const splitItems = items.filter((i) => i.count > 1)
+  const finalItems = items.filter((i) => i.count === 1)
+  while (
+    availableSlots.length - splitItems.length - finalItems.length > 0 &&
+    splitItems.length > 0
+  ) {
+    const sel = splitItems.length === 1 ? 0 : lootContext.random.nextIntWithBound(splitItems.length)
+    const itemStack = splitItems.splice(sel, 1)[0]
+    const maxSplit = Math.floor(itemStack.count / 2)
+    const split = maxSplit === 1 ? 1 : lootContext.random.nextIntWithBound(maxSplit) + 1
+    const splitItem = itemStack.copyWithCount(split)
+    itemStack.count -= split
+    if (itemStack.count > 1 && lootContext.random.nextBoolean()) splitItems.push(itemStack)
+    else finalItems.push(itemStack)
+    if (splitItem.count > 1 && lootContext.random.nextBoolean()) splitItems.push(splitItem)
+    else finalItems.push(splitItem)
+  }
+  finalItems.push(...splitItems)
+  for (let i = finalItems.length; i > 1; i--) {
+    const sel = lootContext.random.nextIntWithBound(i)
+    const swap = finalItems[i - 1]
+    finalItems[i - 1] = finalItems[sel]
+    finalItems[sel] = swap
+  }
+  const output = new Map<number, ItemStack>()
+  for (const itemStack of finalItems) {
+    const index = availableSlots.pop()
+    if (!index) break
+    if (!itemStack.isEmpty()) output.set(index, itemStack)
+  }
+  return output
 }

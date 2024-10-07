@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  LegacyRandomSource,
   createXoroRandomFromRandomSeq,
   createXoroRandomFromSeed,
 } from '@/tools/lootTable/random.ts'
@@ -31,5 +32,23 @@ describe('random', () => {
     )
     expect(source.seedLo).toBe(4005859919137616206n)
     expect(source.seedHi).toBe(2967592910370780387n)
+  })
+
+  it('random Legacy LCG', async () => {
+    const source = new LegacyRandomSource(114n)
+    source.consume(1000)
+    expect(source.nextInt()).toBe(1958913903)
+    expect(source.nextLong()).toBe(2313057718171599392n)
+    expect(source.nextFloat()).toBeCloseTo(0.44635153)
+    expect(source.nextDouble()).toBeCloseTo(0.9118417965892536)
+    expect(source.nextIntWithBound(100)).toBe(1)
+    expect(source.nextIntWithBound(100)).toBe(20)
+    expect(source.nextIntWithBound(100)).toBe(40)
+    expect(source.nextIntWithBound(100)).toBe(77)
+    expect(source.nextIntWithBound(100)).toBe(66)
+    expect(source.nextGaussian()).toBeCloseTo(-1.3914054404492375)
+    expect(source.nextGaussian()).toBeCloseTo(0.25222511262100356)
+    expect(source.nextInt()).toBe(-1997074919)
+    expect(source.nextLong()).toBe(7979975594080502642n)
   })
 })
