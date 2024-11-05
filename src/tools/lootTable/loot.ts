@@ -1,19 +1,19 @@
 import type { RandomSource } from '@/tools/lootTable/random.ts'
 import {
-  ITEM_DEFAULT_COMPONENTS,
-  ItemStack,
+  ENCHANTMENT_PRIMARY_ITEMS,
+  ENCHANTMENT_SUPPORT_ITEMS,
+  ENCHANTMENT_WEIGHT,
+  ENCHANTMENTS_COSTS,
+  INCOMPATIBLE_ENCHANTMENTS,
+} from '@/tools/lootTable/constants.ts'
+import {
   componentDeepCopy,
   createAttributeModifiersComponent,
   createEnchantmentComponent,
   getEnchantmentLevel,
+  ITEM_DEFAULT_COMPONENTS,
+  ItemStack,
 } from '@/tools/lootTable/item.ts'
-import {
-  ENCHANTMENTS_COSTS,
-  ENCHANTMENT_PRIMARY_ITEMS,
-  ENCHANTMENT_SUPPORT_ITEMS,
-  ENCHANTMENT_WEIGHT,
-  INCOMPATIBLE_ENCHANTMENTS,
-} from '@/tools/lootTable/constants.ts'
 
 export class PoolIndexedLootResult {}
 
