@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { getLocale } from '@/utils/i18n/index.ts'
+import { getLocale } from '@/utils/i18n'
 import { parentOrigin } from '@/utils/iframe.ts'
 import { parseWikitext, sanitizeLinks } from '@/utils/wiki.ts'
 import { onMounted, onUpdated, ref } from 'vue'
