@@ -1,7 +1,7 @@
-import { parentOrigin } from '@/utils/iframe.ts'
 import { digestMessage } from '@/utils/digest.ts'
+import { getLocale } from '@/utils/i18n'
+import { parentOrigin } from '@/utils/iframe.ts'
 import { fetchJigsawAPI } from '@/utils/jigsaw.ts'
-import { getLocale } from '@/utils/i18n.ts'
 
 export async function parseWikitext(wikitext: string) {
   const wikitextDigest = await digestMessage(wikitext)
