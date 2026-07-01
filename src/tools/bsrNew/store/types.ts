@@ -1,0 +1,105 @@
+export type DirectionName = 'north' | 'south' | 'west' | 'east' | 'up' | 'down'
+export const DIRECTIONS: DirectionName[] = ['north', 'south', 'west', 'east', 'up', 'down']
+
+// Block data --------------------------------------------------------------------------------------
+export interface BlockData {
+  state: BlockStateModelCollection
+  liquid: Record<string, LiquidComputationData>
+  occlusion: Record<string, OcclusionFaceData>
+  special: number[]
+}
+
+export interface BlockStateModelCollection {
+  variants?: Record<string, ModelReference | ModelReferenceWithWeight[]>
+  multipart?: ConditionalPart[]
+}
+
+export interface ModelReference {
+  model: number
+  uvlock?: boolean
+  x?: number
+  y?: number
+}
+
+export interface ModelReferenceWithWeight {
+  model: number
+  uvlock?: boolean
+  x?: number
+  y?: number
+  weight?: number
+}
+
+export interface ConditionalPart {
+  apply: ModelReference | ModelReferenceWithWeight[]
+  when?: Record<string, string> | AndCondition | OrCondition
+}
+
+export interface AndCondition {
+  AND: (Record<string, string> | AndCondition | OrCondition)[]
+}
+
+export interface OrCondition {
+  OR: (Record<string, string> | AndCondition | OrCondition)[]
+}
+
+type OcclusionFaceData = { [Key in DirectionName]?: number[][] } & { can_occlude: boolean }
+
+interface LiquidComputationData {
+  blocks_motion: boolean
+  face_sturdy: string[]
+}
+
+// Model -------------------------------------------------------------------------------------------
+export interface BlockModel {
+  elements?: ModelElement[]
+}
+
+export interface ModelElement {
+  from: number[]
+  to: number[]
+  rotation?: ModelRotation
+  shade?: boolean
+  light_emission?: number
+  faces: Partial<Record<DirectionName, ModelFace>>
+}
+
+export interface ModelFace {
+  texture: string
+  uv?: number[]
+  rotation?: number
+  tintindex?: number
+  cullface?: DirectionName
+}
+
+export interface ModelRotation {
+  origin: number[]
+  axis: 'x' | 'y' | 'z'
+  angle: number
+  rescale?: boolean
+}
+
+// Texture -----------------------------------------------------------------------------------------
+export interface AnimatedTexture {
+  frames: number[]
+  time: number[]
+  interpolate?: boolean
+}
+
+// State -------------------------------------------------------------------------------------------
+export interface BlockState {
+  name: string
+  properties: Record<string, string>
+}
+
+export function stateToKey(state: BlockState) {
+  return (
+    state.name +
+    (Object.keys(state.properties).length === 0
+      ? ''
+      : `[${Object.entries(state.properties)
+          .filter(([k1]) => k1 !== 'waterlogged')
+          .sort(([k1], [k2]) => k1.localeCompare(k2))
+          .map(([k, v]) => `${k}=${v}`)
+          .join(',')}]`)
+  )
+}
