@@ -1,27 +1,19 @@
 import type { BlockData, BlockModel, BlockState } from '../store/types.ts'
 import * as THREE from 'three/webgpu'
 
-export interface CompilePayloadBase {
-  type: 'light' | 'chunk'
-  structures: string[][][] // yzx
-  mapping: Record<string, BlockState>
-}
-
-export interface LightPayload extends CompilePayloadBase {
+export interface LightPayload {
   type: 'light'
+  structures: BlockState[][][] // yzx, full structure
 }
 
-export interface StructurePayload extends CompilePayloadBase {
+export interface StructurePayload {
   type: 'chunk'
   origin: THREE.Vector3
+  version: number
+  structure: BlockState[][][] // yzx, padding = 1
 }
 
 export type CompilePayload = LightPayload | StructurePayload
-
-export interface RenderLayer {
-  name: string
-  buffer: TransferableGeometry
-}
 
 export class TransferableGeometry {
   readonly buffers: ArrayBufferLike[] = []
@@ -33,16 +25,17 @@ export class TransferableGeometry {
       this.buffers.push(geometry.attributes[attributeName].array.buffer)
     }
   }
+}
 
-  recover() {
-    const geometry = new THREE.BufferGeometry()
-    for (const name of Object.keys(this.shallowGeometry.attributes)) {
-      const shallow = this.shallowGeometry.attributes[name]
-      const attr = new THREE.BufferAttribute(shallow.array, shallow.itemSize, false)
-      geometry.setAttribute(name, attr)
-    }
-    return geometry
+export function recover(transferable: TransferableGeometry) {
+  const geometry = new THREE.BufferGeometry()
+  for (const name of Object.keys(transferable.shallowGeometry.attributes)) {
+    const shallow = transferable.shallowGeometry.attributes[name]
+    const attr = new THREE.BufferAttribute(shallow.array, shallow.itemSize, shallow.normalized)
+    geometry.setAttribute(name, attr)
   }
+  geometry.index = transferable.shallowGeometry.index
+  return geometry
 }
 
 export interface WorkerQueryImpl<
@@ -58,18 +51,18 @@ export type WorkerModelQuery = WorkerQueryImpl<'model', number>
 export type WorkerTextureQuery = WorkerQueryImpl<'texture', number>
 export type WorkerQuery = WorkerBlockQuery | WorkerModelQuery | WorkerTextureQuery
 
-export interface WorkerResponse {
-  type: 'light' | 'chunk'
-}
+export type WorkerResponse = WorkerLightResponse | WorkerChunkResponse
 
-export interface WorkerLightResponse extends WorkerResponse {
+export interface WorkerLightResponse {
   type: 'light'
   lights: number[][][]
 }
 
-export interface WorkerChunkResponse extends WorkerResponse {
+export interface WorkerChunkResponse {
   type: 'chunk'
-  chunk: RenderLayer[]
+  version: number
+  origin: THREE.Vector3
+  chunk: Record<TranslucentLevel, TransferableGeometry>
 }
 
 export interface WorkerQueryResponseImpl<

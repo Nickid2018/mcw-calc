@@ -20,6 +20,15 @@ export const DIRECTION_VEC = {
   east: VECTOR_X_ONE,
 }
 
+export const DIRECTION_REVERSE: Record<DirectionName, DirectionName> = {
+  down: 'up',
+  up: 'down',
+  north: 'south',
+  south: 'north',
+  west: 'east',
+  east: 'west',
+}
+
 export function findNearestDirection(vector: THREE.Vector3, inside: boolean = true) {
   if (!Number.isFinite(vector.length())) return 'up'
   let nearestDirection: DirectionName = 'up'
@@ -32,6 +41,28 @@ export function findNearestDirection(vector: THREE.Vector3, inside: boolean = tr
     }
   }
   return nearestDirection
+}
+
+export function moveTowards(
+  x: number,
+  y: number,
+  z: number,
+  dir: DirectionName,
+): [number, number, number] {
+  switch (dir) {
+    case 'north':
+      return [x, y, z - 1]
+    case 'south':
+      return [x, y, z + 1]
+    case 'west':
+      return [x - 1, y, z]
+    case 'east':
+      return [x + 1, y, z]
+    case 'up':
+      return [x, y + 1, z]
+    case 'down':
+      return [x, y - 1, z]
+  }
 }
 
 export class Rotation {

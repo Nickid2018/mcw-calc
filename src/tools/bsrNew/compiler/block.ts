@@ -10,7 +10,7 @@ import type {
   ModelRotation,
   OrCondition,
 } from '../store/types.ts'
-import type { Rotation } from './math.ts'
+import { stateToKey } from '../store/types.ts'
 import type { TranslucentLevel } from './types.ts'
 import * as THREE from 'three/webgpu'
 import {
@@ -18,11 +18,11 @@ import {
   MATRIX_IDENTITY,
   MATRIX_TRANS_TO_CENTER,
   MATRIX_TRANS_TO_CORNER,
-  MATRIX_X_ROT_90,
   MATRIX_X_ROT_270,
-  MATRIX_Y_ROT_90,
+  MATRIX_X_ROT_90,
   MATRIX_Y_ROT_180,
   MATRIX_Y_ROT_270,
+  MATRIX_Y_ROT_90,
   VECTOR_HALF,
   VECTOR_ONE,
   VECTOR_X_ONE,
@@ -33,8 +33,7 @@ import {
   VECTOR_Z_ONE,
   VECTOR_ZERO,
 } from '../const.ts'
-import { stateToKey } from '../store/types.ts'
-import { findNearestDirection, IDENTITY_ROTATION } from './math.ts'
+import { findNearestDirection, Rotation } from './math.ts'
 import { queryBlock, queryModel, queryTexture } from './worker.ts'
 
 export interface GeometryElement {
@@ -45,13 +44,15 @@ export interface GeometryElement {
   shade: boolean
 }
 
-export interface GeometryModel {
-  rotation: {
-    rotation: string
-    nonCullFaces: Record<TranslucentLevel, GeometryElement[]>
-    cullFaces: Partial<Record<DirectionName, Record<string, GeometryElement[]>>>
-  }[]
-  definition?: ModelReference
+export interface FaceCollection {
+  nonCullFaces: Record<TranslucentLevel, GeometryElement[]>
+  cullFaces: Partial<Record<DirectionName, Record<TranslucentLevel, GeometryElement[]>>>
+}
+
+export interface GeometryModel extends FaceCollection {
+  rotation: Rotation
+  definition: ModelReference
+  resolving?: Promise<void>
 }
 
 export interface GeometryModelGroup {
@@ -63,6 +64,7 @@ export interface GeometryModelGroup {
 export type GeometryCollection = (GeometryModel | GeometryModelGroup)[]
 
 const CACHED_BLOCK_STATES = new Map<string, Promise<GeometryCollection>>()
+const CACHED_MODEL_ELEMENTS = new Map<string, FaceCollection>()
 
 export function getOrCreateModelCollection(blockState: BlockState) {
   const key = stateToKey(blockState)
@@ -78,128 +80,155 @@ async function _createModelCollection(blockState: BlockState): Promise<GeometryC
   collection.forEach((item) => {
     if (Array.isArray(item)) {
       const models: GeometryModel[] = item.map((i) => ({
-        rotation: [],
+        rotation: new Rotation(i.x || 0, i.y || 0),
+        nonCullFaces: {
+          solid: [],
+          transparent: [],
+          translucent: [],
+        },
+        cullFaces: {},
         definition: i,
       }))
       const weights = item.map((i) => i.weight ?? 1)
       finalCollection.push({ models, weights, totalWeight: weights.reduce((a, b) => a + b, 0) })
     } else {
-      finalCollection.push({ rotation: [], definition: item })
+      finalCollection.push({
+        rotation: new Rotation(item.x || 0, item.y || 0),
+        nonCullFaces: {
+          solid: [],
+          transparent: [],
+          translucent: [],
+        },
+        cullFaces: {},
+        definition: item,
+      })
     }
   })
   return finalCollection
 }
 
-export async function validateGeometryModel(model: GeometryModel, rotation: Rotation) {
-  let rotationName = rotation.toStringKey()
-  if (!model.definition)
-    return (
-      model.rotation.find((d) => d.rotation === rotationName) ||
-      model.rotation.find((d) => d.rotation === 'global')
-    )
+function _faceCollectionCacheKey(model: GeometryModel) {
+  return `${model.definition.model}${model.rotation.toStringKey()}${model.definition.uvlock ? 'L' : 'F'}`
+}
 
-  const definition = model.definition
-  if (!definition.uvlock) {
-    model.definition = undefined
-    rotationName = 'global'
-    rotation = IDENTITY_ROTATION
+export async function validateGeometryModel(model: GeometryModel) {
+  if (model.resolving){
+    await model.resolving
+    return
   }
 
-  const data = await queryModel([definition.model])
-  if (!data[definition.model]) return
+  const cacheKey = _faceCollectionCacheKey(model)
+  if (CACHED_MODEL_ELEMENTS.has(cacheKey)) {
+    const cached = CACHED_MODEL_ELEMENTS.get(cacheKey)!
+    model.nonCullFaces = cached.nonCullFaces
+    model.cullFaces = cached.cullFaces
+    model.resolving = Promise.resolve()
+    return
+  }
 
-  const finalModel = {
-    rotation: rotationName,
-    nonCullFaces: {},
-    cullFaces: {},
-  } as GeometryModel['rotation'][number]
+  model.resolving = (async () => {
+    const definition = model.definition
+    const data = await queryModel([definition.model])
+    if (!data[definition.model]) return
 
-  for (const element of data[definition.model]?.elements ?? []) {
-    const from = new THREE.Vector3(...element.from)
-    const to = new THREE.Vector3(...element.to)
-    const initialShape = [from.y / 16, to.y / 16, from.z / 16, to.z / 16, from.x / 16, to.x / 16]
+    for (const element of data[definition.model]?.elements ?? []) {
+      const from = new THREE.Vector3(...element.from)
+      const to = new THREE.Vector3(...element.to)
+      const initialShape = [from.y / 16, to.y / 16, from.z / 16, to.z / 16, from.x / 16, to.x / 16]
 
-    // Compute the element rotation
-    const elementRotation = element.rotation
-    const [elementRotationMatrix, origin, scaleVector] = elementRotation
-      ? computeElementRotation(elementRotation)
-      : [MATRIX_IDENTITY, VECTOR_ZERO, VECTOR_ONE]
+      // Compute the element rotation
+      const elementRotation = element.rotation
+      const [elementRotationMatrix, origin, scaleVector] = elementRotation
+        ? computeElementRotation(elementRotation)
+        : [MATRIX_IDENTITY, VECTOR_ZERO, VECTOR_ONE]
 
-    for (const [faceName, face] of Object.entries(element.faces)) {
-      if (!face) continue
-      const faceDirection = faceName as DirectionName
+      for (const [faceName, face] of Object.entries(element.faces)) {
+        if (!face) continue
+        const faceDirection = faceName as DirectionName
 
-      const [planeHeight, planeWidth] = computePlaneHeightAndWidth(initialShape, faceDirection)
-      if (planeHeight === 0 || planeWidth === 0) continue
+        const [planeHeight, planeWidth] = computePlaneHeightAndWidth(initialShape, faceDirection)
+        if (planeHeight === 0 || planeWidth === 0) continue
 
-      let blockFaceUV = new BlockFaceUV(
-        face.uv ?? completeMissingUV(element, faceDirection),
-        face.rotation ?? 0,
-      )
-      if (definition.uvlock) {
-        blockFaceUV = recomputeUVs(blockFaceUV, rotation, faceDirection)
-      }
+        let blockFaceUV = new BlockFaceUV(
+          face.uv ?? completeMissingUV(element, faceDirection),
+          face.rotation ?? 0,
+        )
+        if (definition.uvlock) {
+          blockFaceUV = recomputeUVs(blockFaceUV, model.rotation, faceDirection)
+        }
 
-      const forceTransparency = face.texture.endsWith('^translucent')
-      const textureId = Number.parseInt(
-        forceTransparency ? face.texture.substring(0, face.texture.length - 12) : face.texture,
-      )
-      const [spriteData, spriteTLevel] = (await queryTexture([textureId]))[textureId]
-      blockFaceUV.uvs[0] = spriteData[0] + blockFaceUV.uvs[0] / ATLAS_SIZE
-      blockFaceUV.uvs[2] = spriteData[0] + blockFaceUV.uvs[2] / ATLAS_SIZE
-      blockFaceUV.uvs[1] = 1 - spriteData[1] - blockFaceUV.uvs[1] / ATLAS_SIZE
-      blockFaceUV.uvs[3] = 1 - spriteData[1] - blockFaceUV.uvs[3] / ATLAS_SIZE
-      const tLevel = forceTransparency ? 'translucent' : spriteTLevel
+        const forceTransparency = face.texture.endsWith('^translucent')
+        const textureId = Number.parseInt(
+          forceTransparency ? face.texture.substring(0, face.texture.length - 12) : face.texture,
+        )
+        const [spriteData, spriteTLevel] = (await queryTexture([textureId]))[textureId]
+        blockFaceUV.uvs[0] = spriteData[0] + blockFaceUV.uvs[0] / ATLAS_SIZE
+        blockFaceUV.uvs[2] = spriteData[0] + blockFaceUV.uvs[2] / ATLAS_SIZE
+        blockFaceUV.uvs[1] = 1 - spriteData[1] - blockFaceUV.uvs[1] / ATLAS_SIZE
+        blockFaceUV.uvs[3] = 1 - spriteData[1] - blockFaceUV.uvs[3] / ATLAS_SIZE
+        const tLevel = forceTransparency ? 'translucent' : spriteTLevel
 
-      const planeGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight)
-      rotatePlaneGeometry(planeGeometry, faceDirection)
-      translatePlaneGeometry(planeGeometry, initialShape, faceDirection)
-      if (elementRotation) {
-        applyPlaneTransformations(planeGeometry, origin, elementRotationMatrix, scaleVector)
-      }
-      if (!rotation.isIdentity()) {
-        applyPlaneTransformations(planeGeometry, VECTOR_HALF, rotation.asMatrix(), VECTOR_ONE)
-      }
+        const planeGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight)
+        rotatePlaneGeometry(planeGeometry, faceDirection)
+        translatePlaneGeometry(planeGeometry, initialShape, faceDirection)
+        if (elementRotation) {
+          applyPlaneTransformations(planeGeometry, origin, elementRotationMatrix, scaleVector)
+        }
+        if (!model.rotation.isIdentity()) {
+          applyPlaneTransformations(
+            planeGeometry,
+            VECTOR_HALF,
+            model.rotation.asMatrix(),
+            VECTOR_ONE,
+          )
+        }
 
-      planeGeometry.setAttribute(
-        'uv',
-        new THREE.Float32BufferAttribute(
-          blockFaceUV.vertex().map((i) => blockFaceUV.uvs[i]),
-          2,
-        ),
-      )
+        planeGeometry.setAttribute(
+          'uv',
+          new THREE.Float32BufferAttribute(
+            blockFaceUV.vertex().map((i) => blockFaceUV.uvs[i]),
+            2,
+          ),
+        )
 
-      const v1 = new THREE.Vector3(...planeGeometry.getAttribute('position').array.slice(0, 3))
-      const v2 = new THREE.Vector3(...planeGeometry.getAttribute('position').array.slice(3, 6))
-      const v3 = new THREE.Vector3(...planeGeometry.getAttribute('position').array.slice(6, 9))
-      const normal = new THREE.Vector3().crossVectors(v2.sub(v1), v1.sub(v3))
-      const direction = findNearestDirection(normal, false)
+        const v1 = new THREE.Vector3(...planeGeometry.getAttribute('position').array.slice(0, 3))
+        const v2 = new THREE.Vector3(...planeGeometry.getAttribute('position').array.slice(3, 6))
+        const v3 = new THREE.Vector3(...planeGeometry.getAttribute('position').array.slice(6, 9))
+        const normal = new THREE.Vector3().crossVectors(v2.sub(v1), v1.sub(v3))
+        const direction = findNearestDirection(normal, false)
 
-      if (face.cullface) {
-        const faceData = (finalModel.cullFaces[face.cullface] ??= {})
-        faceData[tLevel] ??= []
-        faceData[tLevel].push({
-          element: planeGeometry,
-          lightDirection: direction,
-          shade: element.shade ?? true,
-          lightEmission: element.light_emission,
-          tintIndex: face.tintindex,
-        })
-      } else {
-        finalModel.nonCullFaces[tLevel] ??= []
-        finalModel.nonCullFaces[tLevel].push({
-          element: planeGeometry,
-          lightDirection: direction,
-          shade: element.shade ?? true,
-          lightEmission: element.light_emission,
-          tintIndex: face.tintindex,
-        })
+        if (face.cullface) {
+          const faceData = (model.cullFaces[face.cullface] ??= {
+            solid: [],
+            translucent: [],
+            transparent: [],
+          })
+          faceData[tLevel].push({
+            element: planeGeometry,
+            lightDirection: direction,
+            shade: element.shade ?? true,
+            lightEmission: element.light_emission,
+            tintIndex: face.tintindex,
+          })
+        } else {
+          model.nonCullFaces[tLevel].push({
+            element: planeGeometry,
+            lightDirection: direction,
+            shade: element.shade ?? true,
+            lightEmission: element.light_emission,
+            tintIndex: face.tintindex,
+          })
+        }
       }
     }
-  }
 
-  model.rotation.push(finalModel)
-  return finalModel
+    CACHED_MODEL_ELEMENTS.set(cacheKey, {
+      nonCullFaces: model.nonCullFaces,
+      cullFaces: model.cullFaces,
+    })
+  })()
+
+  await model.resolving
 }
 
 // Model Selection Algorithm -----------------------------------------------------------------------

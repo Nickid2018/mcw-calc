@@ -25,5 +25,6 @@ export const MATRIX_TRANS_TO_CENTER = new THREE.Matrix4().makeTranslation(-0.5, 
 export const MATRIX_TRANS_TO_CORNER = new THREE.Matrix4().makeTranslation(0.5, 0.5, 0.5)
 
 export const ATLAS_SIZE = 1024
-export const ATLAS_LOCATION =
-  'https://zh.minecraft.wiki/images/Block_structure_rendering_atlas.png?format=original'
+export const ATLAS_LOCATION = DEBUG_MODE
+  ? 'http://localhost:3000/renderer/assets/atlas.png'
+  : 'https://zh.minecraft.wiki/images/Block_structure_rendering_atlas.png?format=original'

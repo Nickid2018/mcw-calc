@@ -1,3 +1,5 @@
+import type { TextureRange } from '../compiler/types.ts'
+
 export type DirectionName = 'north' | 'south' | 'west' | 'east' | 'up' | 'down'
 export const DIRECTIONS: DirectionName[] = ['north', 'south', 'west', 'east', 'up', 'down']
 
@@ -84,6 +86,8 @@ export interface AnimatedTexture {
   time: number[]
   interpolate?: boolean
 }
+
+export type SourceTextureRange = TextureRange
 
 // State -------------------------------------------------------------------------------------------
 export interface BlockState {

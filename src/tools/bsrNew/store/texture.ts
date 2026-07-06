@@ -1,5 +1,6 @@
 import type { TextureRange, TranslucentLevel, WorkerQuery } from '../compiler/types.ts'
 import type { Store } from './store.ts'
+import type { SourceTextureRange } from './types.ts'
 import * as THREE from 'three/webgpu'
 import { computed, ref } from 'vue'
 import { isSameTextureRange } from '../compiler/types.ts'
@@ -22,13 +23,13 @@ class TextureAtlasNode {
     this.height = height
   }
 
-  insert(spriteData: number[]): TextureAtlasNode | null {
+  insert(spriteData: SourceTextureRange): TextureAtlasNode | null {
     if (this.left && this.right) {
       return this.left.insert(spriteData) || this.right.insert(spriteData)
     }
     if (this.occupied) return null
-    const spriteDataWidth = spriteData[0]
-    const spriteDataHeight = spriteData[1]
+    const spriteDataWidth = spriteData[2]
+    const spriteDataHeight = spriteData[3]
     if (this.width < spriteDataWidth || this.height < spriteDataHeight) return null
     if (this.width === spriteDataWidth && this.height === spriteDataHeight) {
       this.occupied = true
@@ -66,17 +67,17 @@ interface AnimatedSpriteData extends SpriteData {
 
 export class TextureManager {
   readonly animating = ref(true)
-  readonly booting = ref(true)
-  readonly shouldAnimate = computed(() => this.animating.value && !this.booting.value)
+  readonly shouldAnimate = computed(() => this.animating.value)
 
   private readonly rootNode = new TextureAtlasNode(0, 0, ATLAS_SIZE, ATLAS_SIZE)
   private readonly spriteData = new Map<number, SpriteData | AnimatedSpriteData | null>()
   private readonly translucentLevels = new Map<number, TranslucentLevel>()
-  private readonly atlas: THREE.Texture
+  private atlasFailed: boolean = false
   private readonly atlasSource: HTMLImageElement
   private readonly atlasReady: Promise<void>
   private readonly missingTextureRange: TextureRange
 
+  readonly atlas: THREE.Texture
   readonly canvas: HTMLCanvasElement
   private readonly canvasContext: CanvasRenderingContext2D
   readonly checkCanvas: HTMLCanvasElement
@@ -88,7 +89,18 @@ export class TextureManager {
   ) {
     this.atlasSource = document.createElement('img')
     this.atlasSource.src = ATLAS_LOCATION
-    this.atlasReady = new Promise((resolve) => (this.atlasSource.onload = () => resolve()))
+    this.atlasSource.crossOrigin = 'anonymous'
+    this.atlasReady = new Promise((resolve) => {
+      if (this.atlasSource.complete) {
+        resolve()
+      } else {
+        this.atlasSource.onload = () => resolve()
+        this.atlasSource.onerror = () => {
+          this.atlasFailed = true
+          resolve()
+        }
+      }
+    })
 
     this.canvas = document.createElement('canvas')
     this.canvas.width = this.canvas.height = ATLAS_SIZE
@@ -113,7 +125,7 @@ export class TextureManager {
             this.translucentLevels.get(b) ?? 'solid',
           ]),
         ).then((r) =>
-          event.source?.postMessage({
+          worker.postMessage({
             id: event.data.id,
             type: 'texture',
             data: Object.fromEntries(
@@ -129,6 +141,7 @@ export class TextureManager {
     this.missingTextureRange = this.rootNode.insert([0, 0, 16, 16])!.toRange()
 
     const context = (this.canvasContext = this.canvas.getContext('2d')!)
+    context.globalCompositeOperation = 'lighter'
     context.clearRect(0, 0, ATLAS_SIZE, ATLAS_SIZE)
     context.fillStyle = '#000000'
     context.fillRect(this.missingTextureRange[0], this.missingTextureRange[1], 8, 8)
@@ -139,12 +152,21 @@ export class TextureManager {
     this.atlas.needsUpdate = true
   }
 
-  _blit = (from: TextureRange, to: TextureRange) => {
-    // prettier-ignore
-    this.canvasContext.drawImage(this.atlasSource, from[0], from[1], from[2]- from[0], from[3] - from[1], to[0], to[1], to[2] - to[0], to[3] - to[1])
+  _clear = (range: TextureRange) => {
+    this.canvasContext.clearRect(range[0], range[1], range[2] - range[0], range[3] - range[1])
   }
 
-  _interpolate = (from1: TextureRange, from2: TextureRange, to: TextureRange, delta: number) => {
+  _blit = (from: SourceTextureRange, to: TextureRange) => {
+    // prettier-ignore
+    this.canvasContext.drawImage(this.atlasSource, from[0], from[1], from[2], from[3], to[0], to[1], to[2] - to[0], to[3] - to[1])
+  }
+
+  _interpolate = (
+    from1: SourceTextureRange,
+    from2: SourceTextureRange,
+    to: TextureRange,
+    delta: number,
+  ) => {
     this.canvasContext.globalAlpha = delta
     this._blit(from1, to)
     this.canvasContext.globalAlpha = 1 - delta
@@ -152,10 +174,11 @@ export class TextureManager {
     this.canvasContext.globalAlpha = 1
   }
 
-  _computeTranslucentLevel = async (range: TextureRange) => {
+  _computeTranslucentLevel = async (range: SourceTextureRange) => {
     await this.atlasReady
-    const w = range[2] - range[0]
-    const h = range[3] - range[1]
+    const w = range[2]
+    const h = range[3]
+    this.checkCanvasContext.clearRect(0, 0, w, h)
     this.checkCanvasContext.drawImage(this.atlasSource, range[0], range[1], w, h, 0, 0, w, h)
     const imageData = this.checkCanvasContext.getImageData(0, 0, w, h)
     const alphas = imageData.data.filter((_, i) => i % 4 === 3)
@@ -174,6 +197,14 @@ export class TextureManager {
   _makeTexture = async (texture: number) => {
     if (this.spriteData.has(texture))
       return this.spriteData.get(texture)?.range || this.missingTextureRange
+
+    await this.atlasReady
+    if (this.atlasFailed) {
+      this.spriteData.set(texture, null)
+      this.translucentLevels.set(texture, 'solid')
+      return this.missingTextureRange
+    }
+
     const data = await this.store.getTexture(texture)
     if (!data) {
       this.spriteData.set(texture, null)
@@ -181,7 +212,7 @@ export class TextureManager {
       return this.missingTextureRange
     }
 
-    let firstRender: TextureRange
+    let firstRender: SourceTextureRange
     if (Array.isArray(data)) {
       const range = this.rootNode.insert(data)
       if (!range) {
@@ -191,13 +222,13 @@ export class TextureManager {
         return this.missingTextureRange
       }
       this.spriteData.set(texture, { range: range.toRange() })
-      this.translucentLevels.set(texture, await this._computeTranslucentLevel(range.toRange()))
+      this.translucentLevels.set(texture, await this._computeTranslucentLevel(data))
       firstRender = data
     } else {
-      const textures = await Promise.all(
-        data.frames.map((d) => this.store.getTexture(d) as Promise<TextureRange | undefined>),
-      )
-      const size = textures.filter((t) => !!t)[0] as number[]
+      const textures = (await Promise.all(
+        data.frames.map((d) => this.store.getTexture(d)),
+      )) as (SourceTextureRange | null)[]
+      const size = textures.filter((t) => !!t)[0]!
       const range = this.rootNode.insert(size)
       if (!range) {
         console.warn('No room for new texture')
@@ -232,7 +263,6 @@ export class TextureManager {
 
     const range = this.spriteData.get(texture)
     if (!range) return this.missingTextureRange
-    await this.atlasReady
     this._blit(firstRender, range.range)
     this.atlas.needsUpdate = true
     return range.range
@@ -256,6 +286,7 @@ export class TextureManager {
 
           if (isSameTextureRange(last.range, now.range)) return
           updates.push([now.range, d.range])
+          this._clear(d.range)
         } else if (d.interpolate) {
           const delta = 1 - d.lastFrameNowTime / d.lastFrameTime
           const now = d.frames[d.lastFrameIndex]
@@ -263,6 +294,7 @@ export class TextureManager {
 
           if (isSameTextureRange(now.range, next.range)) return
           interpolates.push([now.range, next.range, d.range, delta])
+          this._clear(d.range)
         }
       })
 

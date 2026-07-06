@@ -1,18 +1,18 @@
-import type { TextureRange, WorkerQuery } from '../compiler/types.ts'
-import type { AnimatedTexture, BlockData, BlockModel } from './types.ts'
+import type { WorkerQuery } from '../compiler/types.ts'
+import type { AnimatedTexture, BlockData, BlockModel, SourceTextureRange } from './types.ts'
 import { fetchJigsawAPI } from '@/utils/jigsaw.ts'
 
 export class Store {
   private readonly blockCache: Map<string, Promise<BlockData | null>> = new Map()
   private readonly modelCache: Map<number, Promise<BlockModel | null>> = new Map()
-  private readonly textureCache: Map<number, Promise<TextureRange | AnimatedTexture | null>> =
+  private readonly textureCache: Map<number, Promise<SourceTextureRange | AnimatedTexture | null>> =
     new Map()
 
   constructor(worker: Worker) {
     worker.addEventListener('message', (event: MessageEvent<WorkerQuery>) => {
       if (event.data.type === 'block') {
         Promise.all(event.data.keys.map(async (b) => [b, await this.getBlock(b)])).then((r) =>
-          event.source?.postMessage({
+          worker.postMessage({
             id: event.data.id,
             type: 'block',
             data: Object.fromEntries(r.filter((d) => !!d[1])),
@@ -21,7 +21,7 @@ export class Store {
       }
       if (event.data.type === 'model') {
         Promise.all(event.data.keys.map(async (b) => [b, await this.getModel(b)])).then((r) =>
-          event.source?.postMessage({
+          worker.postMessage({
             id: event.data.id,
             type: 'model',
             data: Object.fromEntries(r.filter((d) => !!d[1])),
@@ -46,14 +46,14 @@ export class Store {
   }
 
   async getBlock(block: string) {
-    return this._getCacheOrFetch(block, `/renderer/block/${block}`, this.blockCache)
+    return this._getCacheOrFetch(block, `renderer/block/${block}`, this.blockCache)
   }
 
   async getModel(model: number) {
-    return this._getCacheOrFetch(model, `/renderer/model/${model}`, this.modelCache)
+    return this._getCacheOrFetch(model, `renderer/model/${model}`, this.modelCache)
   }
 
   async getTexture(texture: number) {
-    return this._getCacheOrFetch(texture, `/renderer/texture/${texture}`, this.textureCache)
+    return this._getCacheOrFetch(texture, `renderer/texture/${texture}`, this.textureCache)
   }
 }

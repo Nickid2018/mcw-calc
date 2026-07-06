@@ -1,12 +1,15 @@
 <script setup lang="ts">
+import type { Renderer } from './renderer/types.ts'
 import * as THREE from 'three/webgpu'
 import { onMounted, ref, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { DEBUG_MODE } from './const.ts'
+import { ChunkBlockRenderer } from './renderer/block.ts'
 import { MarkRenderer } from './renderer/marks.ts'
 import { DisplayRange } from './renderer/types.ts'
 import { fromDefaultCameraData, SceneController } from './scene/controller.ts'
 import { Store } from './store/store.ts'
+import { BlockStructure } from './store/structure.ts'
 import { TextureManager } from './store/texture.ts'
 
 const props = defineProps<{
@@ -29,10 +32,16 @@ const backgroundAlpha = ref(props.backgroundAlphaDefault)
 
 const renderTarget = useTemplateRef('render-target')
 
-// Worker Setup ------------------------------------------------------------------------------------
-const worker = new Worker('./compiler/worker.ts')
+// Worker & Render System Setup --------------------------------------------------------------------
+const structure = new BlockStructure(props.structure, props.blocks)
+const worker = new Worker(new URL('./compiler/worker', import.meta.url), { type: 'module' })
 const store = new Store(worker)
 const textureMgr = new TextureManager(store, worker)
+
+const rendererArray: Renderer[] = [
+  new ChunkBlockRenderer(worker, structure, textureMgr),
+  new MarkRenderer(structure.y, props.marks),
+]
 
 // Three.js Renderer Setup -------------------------------------------------------------------------
 
@@ -65,6 +74,7 @@ function onAnimateLoop(
 ) {
   requestAnimationFrame(() => onAnimateLoop(renderer, scene, controller))
   controller.onAnimateLoop()
+  rendererArray.forEach((r) => r.onAnimationLoop?.(scene))
   renderer.render(scene, controller.camera)
 }
 
@@ -73,13 +83,7 @@ function doTickLoop() {
 }
 
 function recompile(scene: THREE.Scene) {
-  const markRenderer = new MarkRenderer(3, [
-    '1,1,1#114514',
-    '0,1,1#191981',
-    '1,1,0#114514',
-    '1,0,0#191981',
-  ])
-  markRenderer.onDisplayRangeChanged(scene, new DisplayRange(2, 0))
+  rendererArray.forEach((r) => r.onDisplayRangeChanged(scene, new DisplayRange(structure.y, 0)))
 }
 
 onMounted(async () => {

@@ -37,13 +37,14 @@ export class MarkRenderer implements Renderer {
         const colorInt = Number.parseInt(markColor, 16)
         if (Number.isNaN(x) || Number.isNaN(y) || Number.isNaN(z) || Number.isNaN(colorInt))
           console.warn(`Invalid mark data: ${markData}`)
+        else if (y >= ySize) console.warn(`Invalid mark data (y out of range): ${markData}`)
         else this.marks[y].push([x, z, new THREE.Color(colorInt)])
       })
   }
 
   _hasMark(y: number, x: number, z: number): THREE.Color | undefined {
     if (y < 0) return undefined
-    return this.marks[y].find(([ox, oz]) => ox === x && oz === z)?.[2]
+    return this.marks[y]?.find(([ox, oz]) => ox === x && oz === z)?.[2]
   }
 
   onDisplayRangeChanged(scene: THREE.Scene, range: DisplayRange): void {

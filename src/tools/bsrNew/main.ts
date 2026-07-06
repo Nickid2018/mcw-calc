@@ -14,16 +14,22 @@ const i18n = createMcwI18n([import.meta.glob('./locale/*.json', { eager: true })
   const parsed = z
     .object({
       // Required parameters
-      // blocks: sz.array(sz.string(), ';'),
-      // structure: sz.string().default('+'),
-      // // Additional render object
-      // marks: sz.array(sz.string(), ';').default([]),
-      // // Default options
-      // cameraPosData: sz.array(sz.string(), ';').default([]),
-      // orthographic: sz.boolean().default(false),
-      // animatedTexture: sz.boolean().default(true),
-      // showInvisibleBlocks: sz.boolean().default(false),
-      // displayMarks: sz.boolean().default(true),
+      blocks: sz
+        .array(sz.string(), ';')
+        .default([
+          'A=stone',
+          'B=magma_block',
+          'C=lectern[facing=east,has_book=false,powered=false]',
+        ]),
+      structure: sz.string().default('BBBBBBBBBBBBBBBBB,BBBBBBBBBBBBBBBBBBBBBBBB,BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB;BBBAAAAAAAAA,AAAAAAAAAAA,CCC'),
+      // Additional render object
+      marks: sz.array(sz.string(), ';').default(['0,0,1#191981']),
+      // Default options
+      cameraPosData: sz.array(sz.string(), ';').default([]),
+      orthographic: sz.boolean().default(false),
+      animatedTexture: sz.boolean().default(true),
+      showInvisibleBlocks: sz.boolean().default(false),
+      displayMarks: sz.boolean().default(true),
       backgroundColor: sz.string().default('#ffffff'),
       backgroundAlpha: sz.number().default(255),
     })
@@ -34,10 +40,10 @@ const i18n = createMcwI18n([import.meta.glob('./locale/*.json', { eager: true })
   vue
     .createApp(App, {
       ...params,
-      // orthographicDefault: params.orthographic,
-      // animatedTextureDefault: params.animatedTexture,
-      // showInvisibleBlocksDefault: params.showInvisibleBlocks,
-      // displayMarksDefault: params.displayMarks,
+      orthographicDefault: params.orthographic,
+      animatedTextureDefault: params.animatedTexture,
+      showInvisibleBlocksDefault: params.showInvisibleBlocks,
+      displayMarksDefault: params.displayMarks,
       backgroundColorDefault: params.backgroundColor,
       backgroundAlphaDefault: params.backgroundAlpha,
     })
