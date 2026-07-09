@@ -1,7 +1,15 @@
 import type { TextureRange } from '../compiler/types.ts'
 
 export type DirectionName = 'north' | 'south' | 'west' | 'east' | 'up' | 'down'
-export const DIRECTIONS: DirectionName[] = ['north', 'south', 'west', 'east', 'up', 'down']
+export const DIRECTIONS: DirectionName[] = ['down', 'up', 'north', 'south', 'west', 'east']
+export const DIRECTION_ORDINAL: Record<DirectionName, number> = {
+  down: 0,
+  up: 1,
+  north: 2,
+  south: 3,
+  west: 4,
+  east: 5,
+}
 
 // Block data --------------------------------------------------------------------------------------
 export interface BlockData {
@@ -44,7 +52,12 @@ export interface OrCondition {
   OR: (Record<string, string> | AndCondition | OrCondition)[]
 }
 
-type OcclusionFaceData = { [Key in DirectionName]?: number[][] } & { can_occlude: boolean }
+type OcclusionFaceData = { [Key in DirectionName]?: number[][] } & {
+  can_occlude: boolean
+  emission?: number
+  dampening?: number
+  shape_light_occlusion?: boolean
+}
 
 interface LiquidComputationData {
   blocks_motion: boolean

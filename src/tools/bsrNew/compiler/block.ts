@@ -10,7 +10,6 @@ import type {
   ModelRotation,
   OrCondition,
 } from '../store/types.ts'
-import { stateToKey } from '../store/types.ts'
 import type { TranslucentLevel } from './types.ts'
 import * as THREE from 'three/webgpu'
 import {
@@ -18,11 +17,11 @@ import {
   MATRIX_IDENTITY,
   MATRIX_TRANS_TO_CENTER,
   MATRIX_TRANS_TO_CORNER,
-  MATRIX_X_ROT_270,
   MATRIX_X_ROT_90,
+  MATRIX_X_ROT_270,
+  MATRIX_Y_ROT_90,
   MATRIX_Y_ROT_180,
   MATRIX_Y_ROT_270,
-  MATRIX_Y_ROT_90,
   VECTOR_HALF,
   VECTOR_ONE,
   VECTOR_X_ONE,
@@ -33,6 +32,7 @@ import {
   VECTOR_Z_ONE,
   VECTOR_ZERO,
 } from '../const.ts'
+import { stateToKey } from '../store/types.ts'
 import { findNearestDirection, Rotation } from './math.ts'
 import { queryBlock, queryModel, queryTexture } from './worker.ts'
 
@@ -112,7 +112,7 @@ function _faceCollectionCacheKey(model: GeometryModel) {
 }
 
 export async function validateGeometryModel(model: GeometryModel) {
-  if (model.resolving){
+  if (model.resolving) {
     await model.resolving
     return
   }
@@ -191,10 +191,7 @@ export async function validateGeometryModel(model: GeometryModel) {
           ),
         )
 
-        const v1 = new THREE.Vector3(...planeGeometry.getAttribute('position').array.slice(0, 3))
-        const v2 = new THREE.Vector3(...planeGeometry.getAttribute('position').array.slice(3, 6))
-        const v3 = new THREE.Vector3(...planeGeometry.getAttribute('position').array.slice(6, 9))
-        const normal = new THREE.Vector3().crossVectors(v2.sub(v1), v1.sub(v3))
+        const normal = new THREE.Vector3(...planeGeometry.getAttribute('normal').array.slice(0, 3))
         const direction = findNearestDirection(normal, false)
 
         if (face.cullface) {

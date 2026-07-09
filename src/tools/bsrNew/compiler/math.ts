@@ -1,6 +1,7 @@
 import type { DirectionName } from '../store/types.ts'
 import * as THREE from 'three/webgpu'
 import {
+  MATRIX_IDENTITY,
   VECTOR_X_NEG_ONE,
   VECTOR_X_ONE,
   VECTOR_Y_NEG_ONE,
@@ -27,6 +28,24 @@ export const DIRECTION_REVERSE: Record<DirectionName, DirectionName> = {
   south: 'north',
   west: 'east',
   east: 'west',
+}
+
+export const Y_DIRECTION_PERMUTATION: Record<DirectionName, DirectionName[] & { length: 4 }> = {
+  north: ['north', 'east', 'south', 'west'],
+  east: ['east', 'south', 'west', 'north'],
+  south: ['south', 'west', 'north', 'east'],
+  west: ['west', 'north', 'east', 'south'],
+  up: ['up', 'up', 'up', 'up'],
+  down: ['down', 'down', 'down', 'down'],
+}
+
+export const X_DIRECTION_PERMUTATION: Record<DirectionName, DirectionName[] & { length: 4 }> = {
+  north: ['north', 'up', 'south', 'down'],
+  east: ['east', 'east', 'east', 'east'],
+  south: ['south', 'down', 'north', 'up'],
+  west: ['west', 'west', 'west', 'west'],
+  up: ['up', 'south', 'down', 'north'],
+  down: ['down', 'north', 'up', 'south'],
 }
 
 export function findNearestDirection(vector: THREE.Vector3, inside: boolean = true) {
@@ -83,6 +102,7 @@ export class Rotation {
   }
 
   asMatrix() {
+    if (this.isIdentity()) return MATRIX_IDENTITY
     const matrix = new THREE.Matrix4()
     matrix.multiply(new THREE.Matrix4().makeRotationY((-this.y / 180) * Math.PI))
     matrix.multiply(new THREE.Matrix4().makeRotationX((-this.x / 180) * Math.PI))
@@ -90,10 +110,8 @@ export class Rotation {
   }
 
   transformDirection(direction: DirectionName) {
-    const matrix = this.asMatrix()
-    const vector = DIRECTION_VEC[direction].clone()
-    vector.applyMatrix4(matrix)
-    return findNearestDirection(vector)
+    const xRot = X_DIRECTION_PERMUTATION[direction][Math.round(this.x / 90) % 4]
+    return Y_DIRECTION_PERMUTATION[xRot][Math.round(this.y / 90) % 4]
   }
 
   isIdentity(): boolean {

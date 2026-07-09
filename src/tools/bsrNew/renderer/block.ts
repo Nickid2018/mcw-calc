@@ -3,6 +3,7 @@ import type { BlockStructure } from '../store/structure.ts'
 import type { BlockState } from '../store/types.ts'
 import type { Renderer } from './types.ts'
 import * as THREE from 'three/webgpu'
+import { computed, ref } from 'vue'
 import { recover, TransferableGeometry } from '../compiler/types.ts'
 import { AIR_STATE } from '../store/structure.ts'
 import { TextureManager } from '../store/texture.ts'
@@ -11,6 +12,11 @@ import { DisplayRange } from './types.ts'
 export class ChunkBlockRenderer implements Renderer {
   private readonly chunks = new Map<number, THREE.Mesh[]>()
   private readonly versions = new Map<number, number>()
+  private readonly pendingSet = new Set<number>()
+
+  public readonly pendingSize = ref(0)
+  public readonly compiling = computed(() => this.pendingSize.value > 0)
+
   private pendingScene: THREE.Scene | null = null
   private readonly solidMaterial: THREE.Material
   private readonly transparentMaterial: THREE.Material
@@ -69,10 +75,13 @@ export class ChunkBlockRenderer implements Renderer {
     }
 
     this.chunks.set(key, meshes)
+    this.pendingSet.delete(key)
+    this.pendingSize.value = this.pendingSet.size
   }
 
   onDisplayRangeChanged(scene: THREE.Scene, range: DisplayRange): void {
     this.pendingScene = scene
+
     const yMin = Math.max(0, range.rangeYMin - 1) >> 4
     const yMax = Math.min(this.structure.y, range.rangeYMax + 1) >> 4
     const filteredChunks = [...this.chunks.entries()].filter(
@@ -80,6 +89,9 @@ export class ChunkBlockRenderer implements Renderer {
     )
     scene.remove(...filteredChunks.map(([_, v]) => v).flat())
     filteredChunks.forEach(([k]) => this.chunks.delete(k))
+    filteredChunks.forEach(([k]) => this.pendingSet.add(k))
+    this.pendingSize.value = this.pendingSet.size
+
     for (let y = yMin; y <= yMax; y++) {
       for (let z = 0; z <= this.structure.z >> 4; z++) {
         for (let x = 0; x <= this.structure.x >> 4; x++) {

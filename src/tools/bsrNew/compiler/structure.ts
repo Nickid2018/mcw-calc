@@ -1,13 +1,52 @@
 import type { DirectionName } from '../store/types.ts'
 import type { GeometryCollection, GeometryModel, GeometryModelGroup } from './block.ts'
 import type { StructurePayload, TranslucentLevel } from './types.ts'
-import { BufferGeometry } from 'three'
-import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js'
+import * as THREE from 'three/webgpu'
 import { stateToKey } from '../store/types.ts'
 import { getOrCreateModelCollection, validateGeometryModel } from './block.ts'
 import { DIRECTION_REVERSE, isOcclusion, moveTowards } from './math.ts'
 import { TransferableGeometry } from './types.ts'
 import { queryBlock } from './worker.ts'
+
+export const BUFFER_ATTRIBUTES_MAP = {
+  position: 3,
+  uv: 2,
+}
+export const INDEX_ARRAY = [0, 2, 1, 2, 3, 1]
+
+class FastMergeGeometry<A extends string> {
+  private lastIndex = 0
+  private readonly buffers: Record<string, number[]>
+  private readonly indexArray: number[] = []
+
+  constructor(private readonly attributeMap: Record<A, number>) {
+    this.buffers = Object.fromEntries(Object.entries(attributeMap).map(([k]) => [k, []]))
+  }
+
+  pushFace(attributes: Record<A, number[] | THREE.TypedArray>) {
+    Object.entries<number[] | THREE.TypedArray>(attributes).forEach(([k, v]) =>
+      this.buffers[k]?.push(...v),
+    )
+    this.indexArray.push(...INDEX_ARRAY.map((v) => v + this.lastIndex))
+    this.lastIndex += 4
+  }
+
+  finalize() {
+    const buffer = new THREE.BufferGeometry()
+    Object.entries(this.attributeMap).forEach(([k, v]) => {
+      buffer.setAttribute(
+        k,
+        new THREE.BufferAttribute(new Float32Array(this.buffers[k]), v as number),
+      )
+    })
+    buffer.setIndex(this.indexArray)
+    return buffer
+  }
+
+  notEmpty() {
+    return this.lastIndex !== 0
+  }
+}
 
 export async function doStructure(
   payload: StructurePayload,
@@ -37,10 +76,10 @@ export async function doStructure(
     ),
   )
 
-  const layers: Record<TranslucentLevel, BufferGeometry[]> = {
-    solid: [],
-    transparent: [],
-    translucent: [],
+  const layers: Record<TranslucentLevel, FastMergeGeometry<keyof typeof BUFFER_ATTRIBUTES_MAP>> = {
+    solid: new FastMergeGeometry(BUFFER_ATTRIBUTES_MAP),
+    transparent: new FastMergeGeometry(BUFFER_ATTRIBUTES_MAP),
+    translucent: new FastMergeGeometry(BUFFER_ATTRIBUTES_MAP),
   }
   for (let y = 1; y < structure.length - 1; y++) {
     const xzPlane = structure[y]
@@ -58,8 +97,11 @@ export async function doStructure(
           const [finalX, finalY, finalZ] = [x + xo - 1, y + yo - 1, z + zo - 1]
           Object.entries(model.nonCullFaces).forEach(([l, elements]) => {
             elements.forEach((element) => {
-              const buffer = element.element.clone().translate(finalX, finalY, finalZ)
-              layers[l as TranslucentLevel].push(buffer)
+              const positionAttr = element.element.getAttribute('position').array
+              layers[l as TranslucentLevel].pushFace({
+                position: _translatePlane(positionAttr, finalX, finalY, finalZ),
+                uv: element.element.getAttribute('uv').array,
+              })
             })
           })
           Object.entries(model.cullFaces).forEach(([d, faces]) => {
@@ -73,8 +115,11 @@ export async function doStructure(
 
             Object.entries(faces).forEach(([l, elements]) => {
               elements.forEach((element) => {
-                const buffer = element.element.clone().translate(finalX, finalY, finalZ)
-                layers[l as TranslucentLevel].push(buffer)
+                const positionAttr = element.element.getAttribute('position').array
+                layers[l as TranslucentLevel].pushFace({
+                  position: _translatePlane(positionAttr, finalX, finalY, finalZ),
+                  uv: element.element.getAttribute('uv').array,
+                })
               })
             })
           })
@@ -85,9 +130,16 @@ export async function doStructure(
 
   return Object.fromEntries(
     Object.entries(layers)
-      .filter(([_, b]) => b.length > 0)
-      .map(([t, b]) => [t, new TransferableGeometry(BufferGeometryUtils.mergeGeometries(b))]),
+      .filter(([_, b]) => b.notEmpty())
+      .map(([t, b]) => [t, new TransferableGeometry(b.finalize())]),
   ) as Record<TranslucentLevel, TransferableGeometry>
+}
+
+function _translatePlane(positions: THREE.TypedArray, x: number, y: number, z: number) {
+  return positions.map((v, i) => {
+    const n = i % 3
+    return n === 0 ? v + x : n === 1 ? v + y : v + z
+  })
 }
 
 function _selectGroup(x: number, y: number, z: number, group: GeometryModelGroup): GeometryModel {

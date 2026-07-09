@@ -21,7 +21,7 @@ const i18n = createMcwI18n([import.meta.glob('./locale/*.json', { eager: true })
           'B=magma_block',
           'C=lectern[facing=east,has_book=false,powered=false]',
         ]),
-      structure: sz.string().default('BBBBBBBBBBBBBBBBB,BBBBBBBBBBBBBBBBBBBBBBBB,BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB;BBBAAAAAAAAA,AAAAAAAAAAA,CCC'),
+      structure: sz.string().default('AAA,BBB;CCC,AAA'),
       // Additional render object
       marks: sz.array(sz.string(), ';').default(['0,0,1#191981']),
       // Default options

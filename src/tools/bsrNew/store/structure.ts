@@ -4,8 +4,8 @@ const REPLACE_SPACES = /\s/
 
 export const AIR_KEY = '+'
 export const STRUCTURE_VOID_KEY = '-'
-export const AIR_STATE = { name: 'air', properties: {} }
-export const STRUCTURE_VOID_STATE = { name: 'structure_void', properties: {} }
+export const AIR_STATE: BlockState = { name: 'air', properties: {} }
+export const STRUCTURE_VOID_STATE: BlockState = { name: 'structure_void', properties: {} }
 
 function strToState(state: string): [string[], BlockState] {
   let tintData: string[]

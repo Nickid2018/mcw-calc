@@ -55,7 +55,8 @@ export type WorkerResponse = WorkerLightResponse | WorkerChunkResponse
 
 export interface WorkerLightResponse {
   type: 'light'
-  lights: number[][][]
+  block: number[][][]
+  sky: number[][][]
 }
 
 export interface WorkerChunkResponse {

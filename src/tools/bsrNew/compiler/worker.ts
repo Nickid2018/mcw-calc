@@ -31,7 +31,7 @@ self.addEventListener('message', (event: MessageEvent<CompilePayload | WorkerQue
       .catch(console.error)
   } else if (event.data.type === 'light') {
     const result = doLight(event.data)
-    self.postMessage({ type: 'light', lights: result })
+    self.postMessage({ type: 'light', ...result })
   } else if (['block', 'model', 'texture'].includes(event.data.type)) {
     QUERY_PROMISE.get(event.data.id)?.(event.data.data)
     QUERY_PROMISE.delete(event.data.id)
@@ -86,6 +86,6 @@ export async function queryTexture(keys: number[]) {
   return collected
 }
 
-function doLight(payload: LightPayload): number[][][] {
-  return []
+function doLight(payload: LightPayload): { block: number[][][]; light: number[][][] } {
+  return {block: [], light: []}
 }
