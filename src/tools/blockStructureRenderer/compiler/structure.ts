@@ -20,6 +20,8 @@ import { hardcodedSkipRendering } from './occludes.ts'
 import { TransferableGeometry } from './types.ts'
 import { queryBlock } from './worker.ts'
 
+declare const self: DedicatedWorkerGlobalScope
+
 export const BUFFER_ATTRIBUTES_MAP = {
   position: 3,
   uv: 2,
@@ -63,9 +65,7 @@ class FastMergeGeometry<A extends string> {
   }
 }
 
-export async function doStructure(
-  payload: StructurePayload,
-): Promise<Record<TranslucentLevel, TransferableGeometry>> {
+export async function compileStructure(payload: StructurePayload) {
   const { origin, structure } = payload
   const { x: xo, y: yo, z: zo } = origin
 
@@ -153,11 +153,19 @@ export async function doStructure(
     }
   }
 
-  return Object.fromEntries(
-    Object.entries(layers)
-      .filter(([_, b]) => b.notEmpty())
-      .map(([t, b]) => [t, new TransferableGeometry(b.finalize())]),
-  ) as Record<TranslucentLevel, TransferableGeometry>
+  const result: [string, TransferableGeometry][] = Object.entries(layers)
+    .filter(([_, b]) => b.notEmpty())
+    .map(([t, b]) => [t, new TransferableGeometry(b.finalize())])
+
+  self.postMessage(
+    {
+      type: 'chunk',
+      chunk: Object.fromEntries(result),
+      origin: payload.origin,
+      version: payload.version,
+    },
+    result.map(([_, r]) => r.buffers).flat(),
+  )
 }
 
 function _translatePlane(positions: THREE.TypedArray, x: number, y: number, z: number) {
