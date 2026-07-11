@@ -1,16 +1,31 @@
 import type { DirectionName } from '../store/types.ts'
-import type { GeometryCollection, GeometryModel, GeometryModelGroup } from './block.ts'
+import type {
+  GeometryCollection,
+  GeometryElement,
+  GeometryModel,
+  GeometryModelGroup,
+} from './block.ts'
 import type { StructurePayload, TranslucentLevel } from './types.ts'
 import * as THREE from 'three/webgpu'
 import { stateToKey } from '../store/types.ts'
 import { getOrCreateModelCollection, validateGeometryModel } from './block.ts'
+import {
+  applyCardinalLighting,
+  colorApply,
+  DEFAULT_CARDINAL_LIGHTING,
+  hardcodedBlockTint,
+} from './coloring.ts'
 import { DIRECTION_REVERSE, isOcclusion, moveTowards } from './math.ts'
+import { hardcodedSkipRendering } from './occludes.ts'
 import { TransferableGeometry } from './types.ts'
 import { queryBlock } from './worker.ts'
 
 export const BUFFER_ATTRIBUTES_MAP = {
   position: 3,
   uv: 2,
+  uv2: 2,
+  color: 4,
+  normal: 3,
 }
 export const INDEX_ARRAY = [0, 2, 1, 2, 3, 1]
 
@@ -86,6 +101,7 @@ export async function doStructure(
     for (let z = 1; z < xzPlane.length - 1; z++) {
       const xAxis = xzPlane[z]
       for (let x = 1; x < xAxis.length - 1; x++) {
+        const thisState = structure[y][z][x]
         const collection = keys.get(transformed[y][z][x])!
         const thisOcclusion = occlusions[y][z][x]
         const models = collection.map((m) =>
@@ -95,33 +111,42 @@ export async function doStructure(
 
         models.forEach((model) => {
           const [finalX, finalY, finalZ] = [x + xo - 1, y + yo - 1, z + zo - 1]
-          Object.entries(model.nonCullFaces).forEach(([l, elements]) => {
+
+          const _pushElements = ([l, elements]: [string, GeometryElement[]]) => {
             elements.forEach((element) => {
               const positionAttr = element.element.getAttribute('position').array
+              const color = applyCardinalLighting(element.shade, DEFAULT_CARDINAL_LIGHTING)
+
+              if (element.tintIndex !== undefined) {
+                let tint = payload.tints[y][z][x]?.[element.tintIndex] || null
+                if (!tint) tint = hardcodedBlockTint(thisState, element.tintIndex)
+                if (tint) colorApply(color, tint)
+              }
+
               layers[l as TranslucentLevel].pushFace({
                 position: _translatePlane(positionAttr, finalX, finalY, finalZ),
                 uv: element.element.getAttribute('uv').array,
+                uv2: [1, 0, 1, 0, 1, 0, 1, 0],
+                color,
+                normal: element.element.getAttribute('normal').array,
               })
             })
-          })
+          }
+
+          Object.entries(model.nonCullFaces).forEach(_pushElements)
           Object.entries(model.cullFaces).forEach(([d, faces]) => {
-            const dir = model.rotation.transformDirection(d as DirectionName)
+            const dir = d as DirectionName
             const [dx, dy, dz] = moveTowards(x, y, z, dir)
+            const otherState = structure[dy][dz][dx]
+            if (hardcodedSkipRendering(thisState, otherState, dir)) return
+
             const otherOcclusion = occlusions[dy][dz][dx]
             const occlusion =
               otherOcclusion.can_occlude &&
               isOcclusion(thisOcclusion[dir] ?? [], otherOcclusion[DIRECTION_REVERSE[dir]] ?? [])
             if (occlusion) return
 
-            Object.entries(faces).forEach(([l, elements]) => {
-              elements.forEach((element) => {
-                const positionAttr = element.element.getAttribute('position').array
-                layers[l as TranslucentLevel].pushFace({
-                  position: _translatePlane(positionAttr, finalX, finalY, finalZ),
-                  uv: element.element.getAttribute('uv').array,
-                })
-              })
-            })
+            Object.entries(faces).forEach(_pushElements)
           })
         })
       }

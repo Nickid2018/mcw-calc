@@ -1,10 +1,10 @@
 import * as vue from 'vue'
 import { z } from 'zod'
 import { createMcwI18n } from '@/utils/i18n'
-import { getParams, handleParseError, sz } from '@/utils/params'
-import plugin from '@/utils/plugin'
+import { getParams, handleParseError, sz } from '@/utils/params.ts'
+import plugin from '@/utils/plugin.ts'
 import App from './App.vue'
-import '@/init'
+import '@/init.ts'
 
 const targetEl = document.querySelector('#app')!
 
@@ -14,10 +14,16 @@ const i18n = createMcwI18n([import.meta.glob('./locale/*.json', { eager: true })
   const parsed = z
     .object({
       // Required parameters
-      blocks: sz.array(sz.string(), ';'),
-      structure: sz.string().default('+'),
+      blocks: sz
+        .array(sz.string(), ';')
+        .default([
+          'A=stone',
+          'B=magma_block',
+          'C=lectern[facing=east,has_book=false,powered=false]',
+        ]),
+      structure: sz.string().default('AAA,BBB;CCC,AAA'),
       // Additional render object
-      marks: sz.array(sz.string(), ';').default([]),
+      marks: sz.array(sz.string(), ';').default(['0,0,1#191981']),
       // Default options
       cameraPosData: sz.array(sz.string(), ';').default([]),
       orthographic: sz.boolean().default(false),

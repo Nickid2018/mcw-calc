@@ -11,6 +11,7 @@ export interface StructurePayload {
   origin: THREE.Vector3
   version: number
   structure: BlockState[][][] // yzx, padding = 1
+  tints: ([number, number, number, number][] | null)[][][] // yzx, padding = 1
 }
 
 export type CompilePayload = LightPayload | StructurePayload

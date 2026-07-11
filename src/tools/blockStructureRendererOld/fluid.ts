@@ -1,6 +1,6 @@
-import type { BlockStateModelManager } from '@/tools/blockStructureRenderer/model.ts'
-import type { BlockState, FluidState } from '@/tools/blockStructureRenderer/renderer.ts'
-import type { MaterialPicker } from '@/tools/blockStructureRenderer/texture.ts'
+import type { BlockStateModelManager } from '@/tools/blockStructureRendererOld/model.ts'
+import type { BlockState, FluidState } from '@/tools/blockStructureRendererOld/renderer.ts'
+import type { MaterialPicker } from '@/tools/blockStructureRendererOld/texture.ts'
 import * as THREE from 'three'
 import {
   checkNameInSet,
@@ -8,7 +8,7 @@ import {
   halfTransparentBlocks,
   leavesBlocks,
   resolveSpecialTextures,
-} from '@/tools/blockStructureRenderer/hardcodes.ts'
+} from '@/tools/blockStructureRendererOld/hardcodes.ts'
 import {
   Direction,
   getDirectionFromName,
@@ -18,8 +18,8 @@ import {
   isVerticalDirection,
   moveTowardsDirection,
   oppositeDirection,
-} from '@/tools/blockStructureRenderer/math.ts'
-import { SpriteData } from '@/tools/blockStructureRenderer/texture.ts'
+} from '@/tools/blockStructureRendererOld/math.ts'
+import { SpriteData } from '@/tools/blockStructureRendererOld/texture.ts'
 
 function isSameFluid(thisFluidState: FluidState, neighborFluidState: FluidState): boolean {
   return thisFluidState.fluid === neighborFluidState.fluid

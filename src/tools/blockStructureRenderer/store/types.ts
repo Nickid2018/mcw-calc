@@ -11,6 +11,14 @@ export const DIRECTION_ORDINAL: Record<DirectionName, number> = {
   east: 5,
 }
 
+export function isHorizontalDirection(direction: DirectionName): boolean {
+  return !isVerticalDirection(direction)
+}
+
+export function isVerticalDirection(direction: DirectionName): boolean {
+  return direction === 'up' || direction === 'down'
+}
+
 // Block data --------------------------------------------------------------------------------------
 export interface BlockData {
   state: BlockStateModelCollection
@@ -74,6 +82,7 @@ export interface ModelElement {
   to: number[]
   rotation?: ModelRotation
   shade?: boolean
+  shade_direction_override?: DirectionName
   light_emission?: number
   faces: Partial<Record<DirectionName, ModelFace>>
 }

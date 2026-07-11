@@ -1,6 +1,6 @@
 import * as vue from 'vue'
 import { z } from 'zod'
-import App from '@/tools/blockStructureRenderer/App.vue'
+import App from '@/tools/blockStructureRendererOld/App.vue'
 import { createMcwI18n } from '@/utils/i18n'
 import { fetchJigsawAPI } from '@/utils/jigsaw.ts'
 import { getParams, handleParseError, sz } from '@/utils/params.ts'

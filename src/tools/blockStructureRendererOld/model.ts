@@ -4,29 +4,29 @@ import type {
   ModelReference,
   ModelReferenceWithWeight,
   ModelRotation,
-} from '@/tools/blockStructureRenderer/definitions.ts'
-import type { Rotation } from '@/tools/blockStructureRenderer/math.ts'
-import type {NameMapping} from '@/tools/blockStructureRenderer/renderer.ts';
-import type { MaterialPicker } from '@/tools/blockStructureRenderer/texture.ts'
+} from '@/tools/blockStructureRendererOld/definitions.ts'
+import type { Rotation } from '@/tools/blockStructureRendererOld/math.ts'
+import type {NameMapping} from '@/tools/blockStructureRendererOld/renderer.ts';
+import type { MaterialPicker } from '@/tools/blockStructureRendererOld/texture.ts'
 import * as THREE from 'three'
-import { getShade } from '@/tools/blockStructureRenderer/hardcodes.ts'
+import { getShade } from '@/tools/blockStructureRendererOld/hardcodes.ts'
 import {
   Direction,
   getDirectionFromName,
   getUVGlobalToLocalFromDirection,
   getUVLocalToGlobalFromDirection,
   getVectorFromDirection,
-} from '@/tools/blockStructureRenderer/math.ts'
+} from '@/tools/blockStructureRendererOld/math.ts'
 import {
   BlockDataStorage,
   BlockState
   
-} from '@/tools/blockStructureRenderer/renderer.ts'
+} from '@/tools/blockStructureRendererOld/renderer.ts'
 import {
   ANIMATED_TEXTURE_ATLAS_SIZE,
   ATLAS_HEIGHT,
   ATLAS_WIDTH,
-} from '@/tools/blockStructureRenderer/texture.ts'
+} from '@/tools/blockStructureRendererOld/texture.ts'
 
 // Model Reference Provider ------------------------------------------------------------------------
 

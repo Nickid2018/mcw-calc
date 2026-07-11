@@ -2,12 +2,21 @@ import type { TranslucentLevel, WorkerResponse } from '../compiler/types.ts'
 import type { BlockStructure } from '../store/structure.ts'
 import type { BlockState } from '../store/types.ts'
 import type { Renderer } from './types.ts'
+import { attribute, Fn, NodeType, texture } from 'three/tsl'
 import * as THREE from 'three/webgpu'
 import { computed, ref } from 'vue'
 import { recover, TransferableGeometry } from '../compiler/types.ts'
+import { VECTOR_ONE } from '../const.ts'
+import { generateLightmap } from '../scene/lightmap.ts'
 import { AIR_STATE } from '../store/structure.ts'
 import { TextureManager } from '../store/texture.ts'
 import { DisplayRange } from './types.ts'
+
+const COLOR_NODE = Fn((args: { atlas: THREE.Texture; lightmap: THREE.Texture }) => {
+  const texColor = texture(args.atlas, attribute('uv', NodeType.VECTOR2))
+  const lightMapColor = texture(args.lightmap, attribute('uv2', NodeType.VECTOR2))
+  return texColor.mul(attribute('color', NodeType.VECTOR4).mul(lightMapColor))
+})
 
 export class ChunkBlockRenderer implements Renderer {
   private readonly chunks = new Map<number, THREE.Mesh[]>()
@@ -31,14 +40,29 @@ export class ChunkBlockRenderer implements Renderer {
       if (event.data.type === 'chunk')
         this._onWorkerFinished(event.data.origin, event.data.version, event.data.chunk)
     })
-    this.solidMaterial = new THREE.MeshBasicMaterial({ map: textureMgr.atlas, fog: false })
-    this.transparentMaterial = new THREE.MeshBasicMaterial({
-      map: textureMgr.atlas,
+    const lightmap = generateLightmap({
+      AmbientColor: new THREE.Vector3(10 / 255, 10 / 255, 10 / 255),
+      BlockFactor: 0.2,
+      BlockLightTint: VECTOR_ONE,
+      BossOverlayWorldDarkeningFactor: 0,
+      BrightnessFactor: 0,
+      DarknessScale: 0,
+      NightVisionColor: VECTOR_ONE,
+      NightVisionFactor: 0,
+      SkyFactor: 0,
+      SkyLightColor: new THREE.Vector3(120 / 255, 167 / 255, 1),
+    })
+    this.solidMaterial = new THREE.MeshBasicNodeMaterial({
+      colorNode: COLOR_NODE({ atlas: textureMgr.atlas, lightmap }),
+      fog: false,
+    })
+    this.transparentMaterial = new THREE.MeshBasicNodeMaterial({
+      colorNode: COLOR_NODE({ atlas: textureMgr.atlas, lightmap }),
       fog: false,
       alphaTest: 0.1,
     })
-    this.translucentMaterial = new THREE.MeshBasicMaterial({
-      map: textureMgr.atlas,
+    this.translucentMaterial = new THREE.MeshBasicNodeMaterial({
+      colorNode: COLOR_NODE({ atlas: textureMgr.atlas, lightmap }),
       fog: false,
       transparent: true,
     })
@@ -100,42 +124,60 @@ export class ChunkBlockRenderer implements Renderer {
           const yLimit = Math.min(2 + this.structure.y - (y << 4), 18)
           const zLimit = Math.min(2 + this.structure.z - (z << 4), 18)
 
-          const tensor: BlockState[][][] = []
+          const tensorBlocks: BlockState[][][] = []
+          const tensorTints: ([number, number, number, number][] | null)[][][] = []
           const emptyAxis = Array.from<BlockState>({ length: xLimit }).fill(AIR_STATE)
           const emptyPlane = Array.from<BlockState[]>({ length: zLimit }).fill(emptyAxis)
+          const emptyAxisT = Array.from<null>({ length: xLimit }).fill(null)
+          const emptyPlaneT = Array.from<null[]>({ length: zLimit }).fill(emptyAxisT)
 
           for (let yNow = -1; yNow < yLimit; yNow++) {
             const ySlice = yNow + origin.y
             if (ySlice < 0 || ySlice >= this.structure.y) {
-              tensor.push(emptyPlane)
+              tensorBlocks.push(emptyPlane)
+              tensorTints.push(emptyPlaneT)
             } else {
               const layer: BlockState[][] = []
+              const layerT: (typeof tensorTints)[number] = []
               for (let zNow = -1; zNow < zLimit; zNow++) {
                 const zSlice = zNow + origin.z
                 if (zSlice < 0 || zSlice >= this.structure.z) {
                   layer.push(emptyAxis)
+                  layerT.push(emptyAxisT)
                 } else {
                   const axis: BlockState[] = []
+                  const axisT: (typeof layerT)[number] = []
                   const sourceAxis = this.structure.structure[ySlice][zSlice]
+                  const sourceAxisT = this.structure.tints[ySlice][zSlice]
                   for (let xNow = -1; xNow < xLimit; xNow++) {
                     const xSlice = xNow + origin.x
                     if (xSlice < 0 || xSlice >= this.structure.x) {
                       axis.push(AIR_STATE)
+                      axisT.push(null)
                     } else {
                       axis.push(sourceAxis[xSlice])
+                      axisT.push(sourceAxisT[xSlice])
                     }
                   }
                   layer.push(axis)
+                  layerT.push(axisT)
                 }
               }
-              tensor.push(layer)
+              tensorBlocks.push(layer)
+              tensorTints.push(layerT)
             }
           }
 
           const key = this._key(origin)
           const version = (this.versions.get(key) ?? 0) + 1
           this.versions.set(key, version)
-          this.worker.postMessage({ type: 'chunk', version, origin, structure: tensor })
+          this.worker.postMessage({
+            type: 'chunk',
+            version,
+            origin,
+            structure: tensorBlocks,
+            tints: tensorTints,
+          })
         }
       }
     }

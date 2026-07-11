@@ -40,12 +40,12 @@ export const Y_DIRECTION_PERMUTATION: Record<DirectionName, DirectionName[] & { 
 }
 
 export const X_DIRECTION_PERMUTATION: Record<DirectionName, DirectionName[] & { length: 4 }> = {
-  north: ['north', 'up', 'south', 'down'],
+  north: ['north', 'down', 'south', 'up'],
   east: ['east', 'east', 'east', 'east'],
-  south: ['south', 'down', 'north', 'up'],
+  south: ['south', 'up', 'north', 'down'],
   west: ['west', 'west', 'west', 'west'],
-  up: ['up', 'south', 'down', 'north'],
-  down: ['down', 'north', 'up', 'south'],
+  up: ['up', 'north', 'down', 'south'],
+  down: ['down', 'south', 'up', 'north'],
 }
 
 export function findNearestDirection(vector: THREE.Vector3, inside: boolean = true) {
@@ -110,8 +110,8 @@ export class Rotation {
   }
 
   transformDirection(direction: DirectionName) {
-    const xRot = X_DIRECTION_PERMUTATION[direction][Math.round(this.x / 90) % 4]
-    return Y_DIRECTION_PERMUTATION[xRot][Math.round(this.y / 90) % 4]
+    const xRot = X_DIRECTION_PERMUTATION[direction][((Math.round(this.x / 90) % 4) + 4) % 4]
+    return Y_DIRECTION_PERMUTATION[xRot][((Math.round(this.y / 90) % 4) + 4) % 4]
   }
 
   isIdentity(): boolean {

@@ -38,10 +38,9 @@ import { queryBlock, queryModel, queryTexture } from './worker.ts'
 
 export interface GeometryElement {
   element: THREE.PlaneGeometry
-  lightDirection: DirectionName
   tintIndex?: number
   lightEmission?: number
-  shade: boolean
+  shade: DirectionName
 }
 
 export interface FaceCollection {
@@ -195,23 +194,21 @@ export async function validateGeometryModel(model: GeometryModel) {
         const direction = findNearestDirection(normal, false)
 
         if (face.cullface) {
-          const faceData = (model.cullFaces[face.cullface] ??= {
+          const faceData = (model.cullFaces[model.rotation.transformDirection(face.cullface)] ??= {
             solid: [],
             translucent: [],
             transparent: [],
           })
           faceData[tLevel].push({
             element: planeGeometry,
-            lightDirection: direction,
-            shade: element.shade ?? true,
+            shade: element.shade_direction_override ?? ((element.shade ?? true) ? direction : 'up'),
             lightEmission: element.light_emission,
             tintIndex: face.tintindex,
           })
         } else {
           model.nonCullFaces[tLevel].push({
             element: planeGeometry,
-            lightDirection: direction,
-            shade: element.shade ?? true,
+            shade: element.shade_direction_override ?? ((element.shade ?? true) ? direction : 'up'),
             lightEmission: element.light_emission,
             tintIndex: face.tintindex,
           })

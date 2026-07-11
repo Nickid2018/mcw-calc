@@ -34,6 +34,7 @@ function strToState(state: string): [string[], BlockState] {
 
 export class BlockStructure {
   readonly structure: BlockState[][][] // yzx
+  readonly tints: ([number, number, number, number][] | null)[][][]
 
   readonly x: number
   readonly y: number
@@ -71,12 +72,24 @@ export class BlockStructure {
     }
 
     const nameStateMapping: Record<string, BlockState> = {}
+    const tintMapping: Record<string, [number, number, number, number][] | null> = {}
     blocks.forEach((blockPair) => {
       const splitPoint = blockPair.indexOf('=')
       const blockName = blockPair.substring(0, splitPoint)
       const blockData = blockPair.substring(splitPoint + 1)
       const [tint, state] = strToState(blockData)
       nameStateMapping[blockName] = state
+
+      if (tint.length === 0) return
+      tintMapping[blockName] = tint.map((t) => {
+        const number = Number.parseInt(t, 16)
+        return [
+          ((number >> 16) & 0xff) / 255,
+          ((number >> 8) & 0xff) / 255,
+          (number & 0xff) / 255,
+          1,
+        ]
+      })
     })
 
     if (nameStateMapping[AIR_KEY]) {
@@ -101,6 +114,10 @@ export class BlockStructure {
             AIR_STATE),
         ),
       ),
+    )
+
+    this.tints = unmappedStructure.map((v1) =>
+      v1.map((v2) => v2.map((s) => tintMapping[s] || null)),
     )
   }
 }

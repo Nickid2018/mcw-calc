@@ -71,6 +71,7 @@ export class TextureManager {
 
   private readonly rootNode = new TextureAtlasNode(0, 0, ATLAS_SIZE, ATLAS_SIZE)
   private readonly spriteData = new Map<number, SpriteData | AnimatedSpriteData | null>()
+  private readonly resolvedMap = new Map<number, Promise<void>>()
   private readonly translucentLevels = new Map<number, TranslucentLevel>()
   private atlasFailed: boolean = false
   private readonly atlasSource: HTMLImageElement
@@ -119,11 +120,9 @@ export class TextureManager {
     worker.addEventListener('message', (event: MessageEvent<WorkerQuery>) => {
       if (event.data.type === 'texture') {
         Promise.all(
-          event.data.keys.map(async (b) => [
-            b,
-            await this._makeTexture(b),
-            this.translucentLevels.get(b) ?? 'solid',
-          ]),
+          event.data.keys.map(async (b) => {
+            return [b, await this._makeTexture(b), this.translucentLevels.get(b) ?? 'solid']
+          }),
         ).then((r) =>
           worker.postMessage({
             id: event.data.id,
@@ -195,13 +194,20 @@ export class TextureManager {
   }
 
   _makeTexture = async (texture: number) => {
+    const promise = this.resolvedMap.get(texture)
+    if (promise) await promise
+
     if (this.spriteData.has(texture))
       return this.spriteData.get(texture)?.range || this.missingTextureRange
+
+    let resolved = () => {}
+    this.resolvedMap.set(texture, new Promise((r) => (resolved = r)))
 
     await this.atlasReady
     if (this.atlasFailed) {
       this.spriteData.set(texture, null)
       this.translucentLevels.set(texture, 'solid')
+      resolved()
       return this.missingTextureRange
     }
 
@@ -209,6 +215,7 @@ export class TextureManager {
     if (!data) {
       this.spriteData.set(texture, null)
       this.translucentLevels.set(texture, 'solid')
+      resolved()
       return this.missingTextureRange
     }
 
@@ -219,6 +226,7 @@ export class TextureManager {
         console.warn('No room for new texture')
         this.spriteData.set(texture, null)
         this.translucentLevels.set(texture, 'solid')
+        resolved()
         return this.missingTextureRange
       }
       this.spriteData.set(texture, { range: range.toRange() })
@@ -234,6 +242,7 @@ export class TextureManager {
         console.warn('No room for new texture')
         this.spriteData.set(texture, null)
         this.translucentLevels.set(texture, 'solid')
+        resolved()
         return this.missingTextureRange
       }
 
@@ -260,9 +269,12 @@ export class TextureManager {
 
       firstRender = frames[0]
     }
+    resolved()
 
     const range = this.spriteData.get(texture)
-    if (!range) return this.missingTextureRange
+    if (!range) {
+      return this.missingTextureRange
+    }
     this._blit(firstRender, range.range)
     this.atlas.needsUpdate = true
     return range.range

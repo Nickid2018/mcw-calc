@@ -17,7 +17,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
 import { onMounted, ref, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getImageLink } from '@/utils/image'
-import BsrPopup from '../blockStructureRenderer/BsrPopup.vue'
+import BsrPopup from '@/tools/blockStructureRendererOld/BsrPopup.vue'
 import panoramaOverlay from './panorama_overlay.png'
 
 const props = defineProps<{

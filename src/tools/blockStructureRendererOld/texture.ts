@@ -1,5 +1,5 @@
-import type { AnimatedTexture } from '@/tools/blockStructureRenderer/definitions.ts'
-import type { BlockStateModelManager } from '@/tools/blockStructureRenderer/model.ts'
+import type { AnimatedTexture } from '@/tools/blockStructureRendererOld/definitions.ts'
+import type { BlockStateModelManager } from '@/tools/blockStructureRendererOld/model.ts'
 import * as THREE from 'three'
 import { ref } from 'vue'
 

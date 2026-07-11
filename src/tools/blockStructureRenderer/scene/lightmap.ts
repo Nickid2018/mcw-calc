@@ -35,20 +35,22 @@ function parabolicMixFactor(level: number) {
 }
 const VECTOR_BOSS_OVERLAY_MULTIPLIER = new THREE.Vector3(0.7, 0.6, 0.6)
 
-export function generateLightmap(info: LightmapInfo) {
+export function generateLightmap(info: LightmapInfo): THREE.Texture {
   const array = new Float32Array(4 * 16 * 16)
+
+  const nightVisionColor = info.NightVisionColor.clone().multiplyScalar(info.NightVisionFactor)
+
   for (let skyLevel = 0; skyLevel < 16; skyLevel++) {
     for (let blockLevel = 0; blockLevel < 16; blockLevel++) {
-      const blockBrightness = getBrightness(blockLevel) * info.BlockFactor
-      const skyBrightness = getBrightness(skyLevel) * info.SkyFactor
+      const blockBrightness = getBrightness(blockLevel / 15) * info.BlockFactor
+      const skyBrightness = getBrightness(skyLevel / 15) * info.SkyFactor
 
-      const nightVisionColor = info.NightVisionColor.multiplyScalar(info.NightVisionFactor)
-      let color = info.AmbientColor.max(nightVisionColor)
+      let color = info.AmbientColor.clone().max(nightVisionColor)
       color = color.addScaledVector(info.SkyLightColor, skyBrightness)
 
-      const blockLightColor = info.BlockLightTint.lerp(
+      const blockLightColor = info.BlockLightTint.clone().lerp(
         VECTOR_ONE,
-        0.9 * parabolicMixFactor(blockLevel),
+        0.9 * parabolicMixFactor(blockLevel / 15),
       )
       color = color.addScaledVector(blockLightColor, blockBrightness)
 
@@ -57,7 +59,7 @@ export function generateLightmap(info: LightmapInfo) {
         info.BossOverlayWorldDarkeningFactor,
       )
 
-      color = color.add(VECTOR_ONE.multiplyScalar(-info.DarknessScale))
+      color = color.addScaledVector(VECTOR_ONE, -info.DarknessScale)
 
       color = color.clamp(VECTOR_ZERO, VECTOR_ONE)
 

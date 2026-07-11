@@ -1,6 +1,6 @@
-import type {AnimatedTexture, BlockModel, BlockStateDefinition, BSRApiResponse, ModelReference, ModelReferenceWithWeight, StateData} from '@/tools/blockStructureRenderer/definitions.ts';
-import type { BlockStateModelManager } from '@/tools/blockStructureRenderer/model.ts'
-import type { MaterialPicker } from '@/tools/blockStructureRenderer/texture.ts'
+import type {AnimatedTexture, BlockModel, BlockStateDefinition, BSRApiResponse, ModelReference, ModelReferenceWithWeight, StateData} from '@/tools/blockStructureRendererOld/definitions.ts';
+import type { BlockStateModelManager } from '@/tools/blockStructureRendererOld/model.ts'
+import type { MaterialPicker } from '@/tools/blockStructureRendererOld/texture.ts'
 import * as THREE from 'three'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
@@ -14,23 +14,23 @@ import {
   
   
   
-} from '@/tools/blockStructureRenderer/definitions.ts'
-import { renderFluid } from '@/tools/blockStructureRenderer/fluid.ts'
+} from '@/tools/blockStructureRendererOld/definitions.ts'
+import { renderFluid } from '@/tools/blockStructureRendererOld/fluid.ts'
 import {
   hardcodedBlockTint,
   hardCodedRenderers,
   hardCodedSkipRendering,
   invisibleBlockColor,
-} from '@/tools/blockStructureRenderer/hardcodes.ts'
+} from '@/tools/blockStructureRendererOld/hardcodes.ts'
 import {
   getDirectionFromName,
   isOcclusion,
   moveTowardsDirection,
   oppositeDirection,
   Rotation,
-} from '@/tools/blockStructureRenderer/math.ts'
-import { renderBakedFaces, renderModelNoCullFaces } from '@/tools/blockStructureRenderer/model.ts'
-import { BLOCK_RENDERER_MINECRAFT_VERSION } from '@/tools/blockStructureRenderer/renderVersion.ts'
+} from '@/tools/blockStructureRendererOld/math.ts'
+import { renderBakedFaces, renderModelNoCullFaces } from '@/tools/blockStructureRendererOld/model.ts'
+import { BLOCK_RENDERER_MINECRAFT_VERSION } from '@/tools/blockStructureRendererOld/renderVersion.ts'
 import { digestMessage } from '@/utils/digest'
 import { fetchJigsawAPI } from '@/utils/jigsaw.ts'
 

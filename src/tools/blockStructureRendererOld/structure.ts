@@ -1,4 +1,4 @@
-import type { BlockStructure, NameMapping } from '@/tools/blockStructureRenderer/renderer.ts'
+import type { BlockStructure, NameMapping } from '@/tools/blockStructureRendererOld/renderer.ts'
 import * as nbt from '@/utils/nbt.ts'
 
 function makePalette(structure: BlockStructure, nameMapping: NameMapping, ignoreAir: boolean) {
