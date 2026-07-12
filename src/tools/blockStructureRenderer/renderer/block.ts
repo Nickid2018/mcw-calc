@@ -40,17 +40,18 @@ export class ChunkBlockRenderer implements Renderer {
       if (event.data.type === 'chunk')
         this._onWorkerFinished(event.data.origin, event.data.version, event.data.chunk)
     })
+    // Overworld Light at noon
     const lightmap = generateLightmap({
       AmbientColor: new THREE.Vector3(10 / 255, 10 / 255, 10 / 255),
-      BlockFactor: 0.2,
-      BlockLightTint: VECTOR_ONE,
+      BlockFactor: 1.42516,
+      BlockLightTint: new THREE.Vector3(1, 0.84705, 0.54902),
       BossOverlayWorldDarkeningFactor: 0,
-      BrightnessFactor: 0,
+      BrightnessFactor: 1,
       DarknessScale: 0,
-      NightVisionColor: VECTOR_ONE,
+      NightVisionColor: new THREE.Vector3(0.6, 0.6, 0.6),
       NightVisionFactor: 0,
-      SkyFactor: 0,
-      SkyLightColor: new THREE.Vector3(120 / 255, 167 / 255, 1),
+      SkyFactor: 1,
+      SkyLightColor: VECTOR_ONE,
     })
     this.solidMaterial = new THREE.MeshBasicNodeMaterial({
       colorNode: COLOR_NODE({ atlas: textureMgr.atlas, lightmap }),

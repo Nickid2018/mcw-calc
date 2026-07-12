@@ -44,7 +44,8 @@ export function applyCardinalLighting(dir: DirectionName, cardinal: CardinalLigh
 }
 
 function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max)
+  if (value < min) return min
+  return Math.min(value, max)
 }
 
 export function hardcodedBlockTint(
