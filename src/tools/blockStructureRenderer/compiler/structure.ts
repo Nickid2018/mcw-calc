@@ -141,9 +141,10 @@ export async function compileStructure(payload: StructurePayload) {
             if (hardcodedSkipRendering(thisState, otherState, dir)) return
 
             const otherOcclusion = occlusions[dy][dz][dx]
+            const thisFace = thisOcclusion[dir]
+            const otherFace = otherOcclusion[DIRECTION_REVERSE[dir]] ?? []
             const occlusion =
-              otherOcclusion.can_occlude &&
-              isOcclusion(thisOcclusion[dir] ?? [], otherOcclusion[DIRECTION_REVERSE[dir]] ?? [])
+              thisFace && otherOcclusion.can_occlude && isOcclusion(thisFace, otherFace)
             if (occlusion) return
 
             Object.entries(faces).forEach(_pushElements)

@@ -353,7 +353,7 @@ function recomputeUVs(
   const makeTransform = new THREE.Matrix4()
     .multiply(MATRIX_TRANS_TO_CORNER)
     .multiply(UV_GLOBAL_TO_LOCAL[faceDirection])
-    .multiply(rotation.invert().asMatrix())
+    .multiply(rotation.invertMatrix())
     .multiply(UV_LOCAL_TO_GLOBAL[rotation.transformDirection(faceDirection)])
     .multiply(MATRIX_TRANS_TO_CENTER)
 
@@ -505,15 +505,15 @@ function computeElementRotation(
   switch (elementRotation.axis) {
     case 'x':
       axis = VECTOR_X_ONE
-      scaleVector = VECTOR_YZ_ONE
+      scaleVector = VECTOR_YZ_ONE.clone()
       break
     case 'y':
       axis = VECTOR_Y_ONE
-      scaleVector = VECTOR_XZ_ONE
+      scaleVector = VECTOR_XZ_ONE.clone()
       break
     case 'z':
       axis = VECTOR_Z_ONE
-      scaleVector = VECTOR_XY_ONE
+      scaleVector = VECTOR_XY_ONE.clone()
       break
   }
   const origin = new THREE.Vector3(...elementRotation.origin).multiplyScalar(1 / 16)

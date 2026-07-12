@@ -97,8 +97,12 @@ export class Rotation {
     return `[${this.x},${this.y}]`
   }
 
-  invert() {
-    return new Rotation(-this.x, -this.y)
+  invertMatrix() {
+    if (this.isIdentity()) return MATRIX_IDENTITY
+    const matrix = new THREE.Matrix4()
+    matrix.multiply(new THREE.Matrix4().makeRotationX((this.x / 180) * Math.PI))
+    matrix.multiply(new THREE.Matrix4().makeRotationY((this.y / 180) * Math.PI))
+    return matrix
   }
 
   asMatrix() {
@@ -110,8 +114,9 @@ export class Rotation {
   }
 
   transformDirection(direction: DirectionName) {
-    const xRot = X_DIRECTION_PERMUTATION[direction][((Math.round(this.x / 90) % 4) + 4) % 4]
-    return Y_DIRECTION_PERMUTATION[xRot][((Math.round(this.y / 90) % 4) + 4) % 4]
+    if (this.isIdentity()) return direction
+    const xRot = X_DIRECTION_PERMUTATION[direction][Math.round(this.x / 90) % 4]
+    return Y_DIRECTION_PERMUTATION[xRot][Math.round(this.y / 90) % 4]
   }
 
   isIdentity(): boolean {
