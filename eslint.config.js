@@ -22,5 +22,6 @@ export default antfu({
     'vue/html-indent': 'off',
     'unicorn/number-literal-case': 'off',
     'import-x/consistent-type-specifier-style': 'off',
+    'e18e/prefer-static-regex': 'warn',
   },
 })

@@ -3,7 +3,6 @@
   "compilerOptions": {
     "composite": true,
     "lib": ["ES2020", "ES2021.Intl", "DOM", "DOM.Iterable", "webworker"],
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     },
