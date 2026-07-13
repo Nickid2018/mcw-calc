@@ -65,6 +65,7 @@ export class ChunkBlockRenderer implements Renderer {
     this.translucentMaterial = new THREE.MeshBasicNodeMaterial({
       colorNode: COLOR_NODE({ atlas: textureMgr.atlas, lightmap }),
       fog: false,
+      depthWrite: false,
       transparent: true,
     })
   }
