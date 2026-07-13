@@ -2,11 +2,11 @@
 import type { BlockData, BlockModel } from '../store/types.ts'
 import type {
   CompilePayload,
-  LightPayload,
   TextureRange,
   TranslucentLevel,
   WorkerQueryResponse,
 } from './types.ts'
+import { doLight } from './light.ts'
 import { compileStructure } from './structure.ts'
 
 declare const self: DedicatedWorkerGlobalScope
@@ -18,11 +18,9 @@ const TEXTURE_CACHE = new Map<number, [TextureRange, TranslucentLevel]>()
 
 self.addEventListener('message', (event: MessageEvent<CompilePayload | WorkerQueryResponse>) => {
   if (event.data.type === 'chunk') {
-    const payload = event.data
-    compileStructure(payload).catch(console.error)
+    compileStructure(event.data).catch(console.error)
   } else if (event.data.type === 'light') {
-    const result = doLight(event.data)
-    self.postMessage({ type: 'light', ...result })
+    doLight(event.data).catch(console.error)
   } else if (['block', 'model', 'texture'].includes(event.data.type)) {
     QUERY_PROMISE.get(event.data.id)?.(event.data.data)
     QUERY_PROMISE.delete(event.data.id)
@@ -75,8 +73,4 @@ export async function queryTexture(keys: number[]) {
   Object.entries(collected).forEach(([k, v]) => TEXTURE_CACHE.set(Number(k), v))
   settled.forEach((k) => (collected[k] = TEXTURE_CACHE.get(k)!))
   return collected
-}
-
-function doLight(payload: LightPayload): { block: number[][][]; light: number[][][] } {
-  return { block: [], light: [] }
 }

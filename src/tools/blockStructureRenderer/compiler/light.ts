@@ -1,14 +1,21 @@
 // net.minecraft.world.level.lighting
 // WORKER THREAD ALGORITHM
 import type { BlockState, DirectionName } from '../store/types.ts'
+import type { LightPayload } from './types.ts'
 import { AIR_STATE } from '../store/structure.ts'
 import { DIRECTION_ORDINAL, DIRECTIONS, stateToKey } from '../store/types.ts'
 import { DIRECTION_REVERSE, isOcclusion } from './math.ts'
 import { queryBlock } from './worker.ts'
 
+declare const self: DedicatedWorkerGlobalScope
+
 interface LightRequest {
   from: number
   data: number
+}
+
+function packPos(x: number, y: number, z: number) {
+  return (x << 24) + (y << 12) + z
 }
 
 function getX(node: number) {
@@ -125,6 +132,23 @@ function isIncreaseFromEmission(entry: number) {
   return (entry & 0x800) !== 0
 }
 
+// light engine
+
+let BLOCK_ENGINE: LightEngine | null = null
+let SKY_ENGINE: LightEngine | null = null
+
+export async function doLight(payload: LightPayload) {
+  BLOCK_ENGINE = new BlockLightEngine(payload.structures)
+  SKY_ENGINE = new SkyLightEngine(payload.structures)
+  await Promise.all([BLOCK_ENGINE.propagateLightSources(), SKY_ENGINE.propagateLightSources()])
+  await Promise.all([BLOCK_ENGINE.runUpdates(), SKY_ENGINE.runUpdates()])
+  self.postMessage({
+    type: 'light',
+    block: BLOCK_ENGINE.getLightArray(),
+    sky: SKY_ENGINE.getLightArray(),
+  })
+}
+
 export abstract class LightEngine {
   protected readonly increaseQueue: LightRequest[] = []
   protected readonly decreaseQueue: LightRequest[] = []
@@ -132,7 +156,7 @@ export abstract class LightEngine {
   private readonly storedLevels: number[][][]
   private lastStructure: BlockState[][][] | null = null
 
-  protected constructor(private structure: BlockState[][][]) {
+  protected constructor(protected structure: BlockState[][][]) {
     this.storedLevels = structure.map((v1) => v1.map((v2) => v2.map((_) => 0)))
   }
 
@@ -241,7 +265,33 @@ export class BlockLightEngine extends LightEngine {
     }
   }
 
-  async propagateDecrease(fromNode: number, decreaseData: number) {}
+  async propagateDecrease(fromNode: number, decreaseData: number) {
+    const oldFromLevel = getFromLevel(decreaseData)
+    for (const dir of DIRECTIONS) {
+      const toNode = moveTowards(fromNode, dir)
+      const toLevel = this.getStoredLevel(toNode)
+      if (!shouldPropagateInDirection(decreaseData, dir) || toLevel === 0) continue
+      if (toLevel <= oldFromLevel - 1) {
+        const toState = this.getState(toNode)
+        const toEmission = await this.getEmission(toState)
+        this.setStoredLevel(toNode, 0)
+        if (toEmission < toLevel)
+          this.decreaseQueue.push({
+            from: toNode,
+            data: decreaseSkipOneDirection(toLevel, DIRECTION_REVERSE[dir]),
+          })
+        if (toEmission <= 0) continue
+        this.increaseQueue.push({
+          from: toNode,
+          data: increaseLightFromEmission(toEmission, await this.isEmptyShape(toState)),
+        })
+      }
+      this.increaseQueue.push({
+        from: toNode,
+        data: increaseOnlyOneDirection(toLevel, false, DIRECTION_REVERSE[dir]),
+      })
+    }
+  }
 
   async propagateIncrease(fromNode: number, increaseData: number, fromLevel: number) {
     const maxPossibleNewToLevel = fromLevel - 1
@@ -267,6 +317,37 @@ export class BlockLightEngine extends LightEngine {
       })
     }
   }
+
+  async propagateLightSources() {
+    await Promise.all(
+      this.structure
+        .map((v1, y) =>
+          v1.map((v2, z) =>
+            v2.map(async (state, x) => {
+              const emission = await this.getEmission(state)
+              if (emission <= 0) return
+              this.increaseQueue.push({
+                from: packPos(x, y, z),
+                data: increaseLightFromEmission(emission, await this.isEmptyShape(state)),
+              })
+            }),
+          ),
+        )
+        .flat(2),
+    )
+  }
+}
+
+export class SkyLightEngine extends LightEngine {
+  constructor(structure: BlockState[][][]) {
+    super(structure)
+  }
+
+  async checkNode(node: number) {}
+
+  async propagateDecrease(fromNode: number, decreaseData: number) {}
+
+  async propagateIncrease(fromNode: number, increaseData: number, fromLevel: number) {}
 
   async propagateLightSources() {}
 }
