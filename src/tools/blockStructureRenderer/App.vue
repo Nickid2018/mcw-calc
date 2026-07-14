@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import type { Renderer } from './renderer/types.ts'
+import type { Renderer, Updater } from './renderer/types.ts'
 import * as THREE from 'three/webgpu'
 import { onMounted, ref, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { DEBUG_MODE } from './const.ts'
 import { ChunkBlockRenderer } from './renderer/block.ts'
+import { LightUpdater } from './renderer/light.ts'
 import { MarkRenderer } from './renderer/marks.ts'
-import { DisplayRange } from './renderer/types.ts'
+import { Range } from './renderer/types.ts'
 import { fromDefaultCameraData, SceneController } from './scene/controller.ts'
 import { Store } from './store/store.ts'
 import { BlockStructure } from './store/structure.ts'
@@ -38,6 +39,7 @@ const worker = new Worker(new URL('./compiler/worker', import.meta.url), { type:
 const store = new Store(worker)
 const textureMgr = new TextureManager(store, worker)
 
+const updaterArray: Updater[] = [new LightUpdater(worker, structure)]
 const rendererArray: Renderer[] = [
   new ChunkBlockRenderer(worker, structure, textureMgr),
   new MarkRenderer(structure.y, props.marks),
@@ -83,7 +85,10 @@ function doTickLoop() {
 }
 
 function recompile(scene: THREE.Scene) {
-  rendererArray.forEach((r) => r.onDisplayRangeChanged(scene, new DisplayRange(structure.y, 0)))
+  const updateRange = new Range(structure.y, 0)
+  const removeRange = new Range(0, 0)
+  updaterArray.forEach((r) => r.onDisplayRangeChanged(scene, updateRange, removeRange))
+  rendererArray.forEach((r) => r.onDisplayRangeChanged(scene, updateRange, removeRange))
 }
 
 onMounted(async () => {

@@ -1,7 +1,7 @@
 // net.minecraft.world.level.lighting
 // WORKER THREAD ALGORITHM
-import type { BlockState, DirectionName } from '../store/types.ts'
-import type { LightPayload } from './types.ts'
+import type { BlockState, DirectionName, OcclusionFaceData } from '../store/types.ts'
+import type { LightPayload, LightPos } from './types.ts'
 import { AIR_STATE } from '../store/structure.ts'
 import { DIRECTION_ORDINAL, DIRECTIONS, stateToKey } from '../store/types.ts'
 import { DIRECTION_REVERSE, isOcclusion } from './math.ts'
@@ -10,40 +10,40 @@ import { queryBlock } from './worker.ts'
 declare const self: DedicatedWorkerGlobalScope
 
 interface LightRequest {
-  from: number
+  from: LightPos
   data: number
 }
 
-function packPos(x: number, y: number, z: number) {
-  return (x << 24) + (y << 12) + z
+function packPos(x: number, y: number, z: number): LightPos {
+  return { x, y, z }
 }
 
-function getX(node: number) {
-  return (node >> 24) & 0xfff
+function getX(node: LightPos) {
+  return node.x
 }
 
-function getY(node: number) {
-  return (node >> 12) & 0xfff
+function getY(node: LightPos) {
+  return node.y
 }
 
-function getZ(node: number) {
-  return (node >> 0) & 0xfff
+function getZ(node: LightPos) {
+  return node.z
 }
 
-function moveTowards(node: number, dir: DirectionName) {
+function moveTowards(node: LightPos, dir: DirectionName): LightPos {
   switch (dir) {
     case 'north':
-      return (getX(node) << 24) | (getY(node) << 12) | (getZ(node) - 1)
+      return { ...node, z: node.z - 1 }
     case 'south':
-      return (getX(node) << 24) | (getY(node) << 12) | (getZ(node) + 1)
+      return { ...node, z: node.z + 1 }
     case 'west':
-      return ((getX(node) - 1) << 24) | (getY(node) << 12) | getZ(node)
+      return { ...node, x: node.x - 1 }
     case 'east':
-      return ((getX(node) + 1) << 24) | (getY(node) << 12) | getZ(node)
-    case 'up':
-      return (getX(node) << 24) | ((getY(node) + 1) << 12) | getZ(node)
+      return { ...node, x: node.x + 1 }
     case 'down':
-      return (getX(node) << 24) | ((getY(node) - 1) << 12) | getZ(node)
+      return { ...node, y: node.y - 1 }
+    case 'up':
+      return { ...node, y: node.y + 1 }
   }
 }
 
@@ -134,35 +134,77 @@ function isIncreaseFromEmission(entry: number) {
 
 // light engine
 
-let BLOCK_ENGINE: LightEngine | null = null
-let SKY_ENGINE: LightEngine | null = null
+let BLOCK_ENGINE: BlockLightEngine | null = null
+let SKY_ENGINE: SkyLightEngine | null = null
+let lastVersionPromise = Promise.resolve()
 
-export async function doLight(payload: LightPayload) {
-  BLOCK_ENGINE = new BlockLightEngine(payload.structures)
-  SKY_ENGINE = new SkyLightEngine(payload.structures)
-  await Promise.all([BLOCK_ENGINE.propagateLightSources(), SKY_ENGINE.propagateLightSources()])
+export function doLight(payload: LightPayload) {
+  let resolveVersion = () => {}
+  const lastPromise = lastVersionPromise
+  lastVersionPromise = new Promise((resolve) => (resolveVersion = resolve))
+  internalDoLight(payload, lastPromise, resolveVersion).catch(console.error)
+}
+
+async function internalDoLight(payload: LightPayload, promise: Promise<void>, resolve: () => void) {
+  await promise
+  if (payload.updates && BLOCK_ENGINE && SKY_ENGINE) {
+    BLOCK_ENGINE.update(payload.structures, payload.updates)
+    SKY_ENGINE.update(payload.structures, payload.updates)
+    await SKY_ENGINE.fillLowestSourceY()
+  } else {
+    BLOCK_ENGINE = new BlockLightEngine(payload.structures)
+    SKY_ENGINE = new SkyLightEngine(payload.structures)
+    await SKY_ENGINE.fillLowestSourceY()
+    await Promise.all([BLOCK_ENGINE.propagateLightSources(), SKY_ENGINE.propagateLightSources()])
+  }
   await Promise.all([BLOCK_ENGINE.runUpdates(), SKY_ENGINE.runUpdates()])
   self.postMessage({
     type: 'light',
     block: BLOCK_ENGINE.getLightArray(),
     sky: SKY_ENGINE.getLightArray(),
+    version: payload.version,
   })
+  resolve()
 }
 
 export abstract class LightEngine {
   protected readonly increaseQueue: LightRequest[] = []
   protected readonly decreaseQueue: LightRequest[] = []
-  private readonly blockNodesToCheck: number[] = []
+  private readonly blockNodesToCheck: LightPos[] = []
   private readonly storedLevels: number[][][]
   private lastStructure: BlockState[][][] | null = null
+  private readonly rangeX: number
+  private readonly rangeY: number
+  private readonly rangeZ: number
+  protected levelDefault = 0
 
   protected constructor(protected structure: BlockState[][][]) {
     this.storedLevels = structure.map((v1) => v1.map((v2) => v2.map((_) => 0)))
+    this.rangeX = structure[0][0].length
+    this.rangeY = structure.length
+    this.rangeZ = structure[0].length
   }
 
-  getState(node: number): BlockState {
+  update(structure: BlockState[][][], checkBlocks: LightPos[]) {
+    this.structure = structure
+    this.blockNodesToCheck.push(...checkBlocks)
+  }
+
+  isOutside(node: LightPos) {
+    const x = getX(node)
+    const y = getY(node)
+    const z = getZ(node)
+    return x < 0 || y < 0 || z < 0 || x >= this.rangeX || y >= this.rangeY || z >= this.rangeZ
+  }
+
+  getState(node: LightPos): BlockState {
     if (!this.lastStructure) return AIR_STATE
     return this.lastStructure[getY(node)]?.[getZ(node)]?.[getX(node)] ?? AIR_STATE
+  }
+
+  async getLightDampening(state: BlockState) {
+    const blockData = (await queryBlock([state.name]))[state.name]
+    return blockData?.occlusion[stateToKey(state)]?.dampening ?? 0
   }
 
   async getEmission(state: BlockState) {
@@ -173,7 +215,7 @@ export abstract class LightEngine {
   async isEmptyShape(state: BlockState) {
     const blockData = (await queryBlock([state.name]))[state.name]
     const occlusionData = blockData?.occlusion[stateToKey(state)]
-    return !occlusionData?.can_occlude && !occlusionData?.shape_light_occlusion
+    return !occlusionData?.can_occlude || !occlusionData?.shape_light_occlusion
   }
 
   async getOpacity(state: BlockState) {
@@ -186,17 +228,22 @@ export abstract class LightEngine {
     const blockDatas = await queryBlock([fromState.name, toState.name])
     const fromData = blockDatas[fromState.name]?.occlusion[stateToKey(fromState)]
     const toData = blockDatas[toState.name]?.occlusion[stateToKey(toState)]
+    const fromIsEmpty = !fromData?.can_occlude || !fromData?.shape_light_occlusion
+    const toIsEmpty = !toData?.can_occlude || !toData?.shape_light_occlusion
     return isOcclusion(
       [[0, 0, 1, 1]],
-      [...(fromData?.[dir] ?? []), ...(toData?.[DIRECTION_REVERSE[dir]] ?? [])],
+      [
+        ...(fromIsEmpty ? [] : (fromData?.[dir] ?? [])),
+        ...(toIsEmpty ? [] : (toData?.[DIRECTION_REVERSE[dir]] ?? [])),
+      ],
     )
   }
 
-  getStoredLevel(node: number): number {
-    return this.storedLevels[getY(node)]?.[getZ(node)]?.[getX(node)] ?? 0
+  getStoredLevel(node: LightPos): number {
+    return this.storedLevels[getY(node)]?.[getZ(node)]?.[getX(node)] ?? this.levelDefault
   }
 
-  setStoredLevel(node: number, level: number) {
+  setStoredLevel(node: LightPos, level: number) {
     const yPlane = this.storedLevels[getY(node)]
     if (!yPlane) return
     const zAxis = yPlane[getZ(node)]
@@ -232,14 +279,14 @@ export abstract class LightEngine {
     return this.storedLevels
   }
 
-  abstract checkNode(node: number): Promise<void>
+  abstract checkNode(node: LightPos): Promise<void>
   abstract propagateLightSources(): Promise<void>
   abstract propagateIncrease(
-    fromNode: number,
+    fromNode: LightPos,
     increaseData: number,
     fromLevel: number,
   ): Promise<void>
-  abstract propagateDecrease(fromNode: number, decreaseData: number): Promise<void>
+  abstract propagateDecrease(fromNode: LightPos, decreaseData: number): Promise<void>
 }
 
 export class BlockLightEngine extends LightEngine {
@@ -247,7 +294,8 @@ export class BlockLightEngine extends LightEngine {
     super(structure)
   }
 
-  async checkNode(node: number) {
+  async checkNode(node: LightPos) {
+    if (this.isOutside(node)) return
     const state = this.getState(node)
     const emission = await this.getEmission(state)
     const oldLevel = this.getStoredLevel(node)
@@ -265,10 +313,11 @@ export class BlockLightEngine extends LightEngine {
     }
   }
 
-  async propagateDecrease(fromNode: number, decreaseData: number) {
+  async propagateDecrease(fromNode: LightPos, decreaseData: number) {
     const oldFromLevel = getFromLevel(decreaseData)
     for (const dir of DIRECTIONS) {
       const toNode = moveTowards(fromNode, dir)
+      if (this.isOutside(toNode)) continue
       const toLevel = this.getStoredLevel(toNode)
       if (!shouldPropagateInDirection(decreaseData, dir) || toLevel === 0) continue
       if (toLevel <= oldFromLevel - 1) {
@@ -293,18 +342,19 @@ export class BlockLightEngine extends LightEngine {
     }
   }
 
-  async propagateIncrease(fromNode: number, increaseData: number, fromLevel: number) {
+  async propagateIncrease(fromNode: LightPos, increaseData: number, fromLevel: number) {
     const maxPossibleNewToLevel = fromLevel - 1
     const fromState = isFromEmptyShape(increaseData) ? AIR_STATE : this.getState(fromNode)
     for (const dir of DIRECTIONS) {
       const toNode = moveTowards(fromNode, dir)
+      if (this.isOutside(toNode)) continue
       const toLevel = this.getStoredLevel(toNode)
       if (!shouldPropagateInDirection(increaseData, dir) || maxPossibleNewToLevel <= toLevel)
         continue
       const toState = this.getState(toNode)
       const newToLevel = fromLevel - (await this.getOpacity(toState))
       if (newToLevel <= toLevel) continue
-      if (await this.shapeOccludes(fromState, toState, dir)) return
+      if (await this.shapeOccludes(fromState, toState, dir)) continue
       this.setStoredLevel(toNode, newToLevel)
       if (newToLevel <= 1) continue
       this.increaseQueue.push({
@@ -339,15 +389,197 @@ export class BlockLightEngine extends LightEngine {
 }
 
 export class SkyLightEngine extends LightEngine {
+  private readonly heightmap: number[][] // zx
+
   constructor(structure: BlockState[][][]) {
     super(structure)
+    this.heightmap = structure[0].map((v1) => v1.map((_) => -1))
+    this.levelDefault = 15
   }
 
-  async checkNode(node: number) {}
+  async fillLowestSourceY() {
+    const blocks = [...new Set(this.structure.flat(3).map((b) => b.name))]
+    const blockData = await queryBlock(blocks)
+    const blockOcclusion = Object.fromEntries(
+      Object.entries(blockData)
+        .map(([_, data]) => Object.entries(data.occlusion))
+        .flat(),
+    )
+    const occlusions = this.structure.map((v1) =>
+      v1.map((v2) => v2.map((s) => blockOcclusion[stateToKey(s)])),
+    )
 
-  async propagateDecrease(fromNode: number, decreaseData: number) {}
+    await Promise.all(
+      this.structure[0]
+        .map((v1, z) =>
+          v1.map(async (_, x) => {
+            this.heightmap[z][x] = await this.findLowestSourceY(
+              x,
+              z,
+              (x, y, z) => occlusions[y][z][x],
+            )
+          }),
+        )
+        .flat(),
+    )
+  }
 
-  async propagateIncrease(fromNode: number, increaseData: number, fromLevel: number) {}
+  async findLowestSourceY(
+    x: number,
+    z: number,
+    occlusionGetter: (x: number, y: number, z: number) => OcclusionFaceData,
+  ) {
+    for (let y = this.structure.length - 1; y > 0; y--) {
+      const state = this.getState(packPos(x, y, z))
+      if ((await this.getLightDampening(state)) > 0) return y + 1
+      const occlusion = occlusionGetter(x, y, z)
+      if (isOcclusion([[0, 0, 1, 1]], [...(occlusion.up ?? []), ...(occlusion.down ?? [])]))
+        return y + 1
+    }
+    return -1
+  }
 
-  async propagateLightSources() {}
+  getLowestSourceY(x: number, z: number, defaultValue: number) {
+    const y = this.heightmap[z]?.[x] ?? defaultValue
+    if (y === -1) return Number.MIN_SAFE_INTEGER
+    return y
+  }
+
+  updateSourcesInColumn(x: number, z: number, lowestSourceY: number) {
+    this.removeSourcesBelow(x, z, lowestSourceY, 0)
+    this.addSourcesAbove(x, z, lowestSourceY, 0)
+  }
+
+  removeSourcesBelow(x: number, z: number, lowestSourceY: number, worldBottomY: number) {
+    if (lowestSourceY <= worldBottomY) return
+    for (let y = lowestSourceY; y >= worldBottomY; y--) {
+      const node = packPos(x, y, z)
+      if (this.getStoredLevel(node) !== 15) return
+      this.setStoredLevel(node, 0)
+      this.decreaseQueue.push({
+        from: node,
+        data:
+          y === lowestSourceY - 1 ? decreaseAllDirections(15) : decreaseSkipOneDirection(15, 'up'),
+      })
+    }
+  }
+
+  addSourcesAbove(x: number, z: number, lowestSourceY: number, worldBottomY: number) {
+    const neighborLowestSourceY = Math.max(
+      this.getLowestSourceY(x - 1, z, Number.MIN_SAFE_INTEGER),
+      this.getLowestSourceY(x + 1, z, Number.MIN_SAFE_INTEGER),
+      this.getLowestSourceY(x, z - 1, Number.MIN_SAFE_INTEGER),
+      this.getLowestSourceY(x, z + 1, Number.MIN_SAFE_INTEGER),
+    )
+    const startY = Math.max(lowestSourceY, worldBottomY)
+    for (let y = startY; y < this.structure.length + 1; y++) {
+      const node = packPos(x, y, z)
+      if (this.getStoredLevel(node) === 15) return
+      if (y >= neighborLowestSourceY && y !== lowestSourceY) continue
+      this.increaseQueue.push({ from: node, data: increaseSkipOneDirection(15, false, 'up') })
+    }
+  }
+
+  async checkNode(node: LightPos) {
+    const x = getX(node)
+    const z = getZ(node)
+    const lowestSourceY = this.isOutside(node)
+      ? Number.MAX_SAFE_INTEGER
+      : this.getLowestSourceY(x, z, Number.MAX_SAFE_INTEGER)
+    if (lowestSourceY !== Number.MAX_SAFE_INTEGER) {
+      this.updateSourcesInColumn(x, z, lowestSourceY)
+    }
+    const isSource = getY(node) >= lowestSourceY
+    if (isSource) {
+      this.decreaseQueue.push({ from: node, data: decreaseAllDirections(15) })
+      this.increaseQueue.push({ from: node, data: increaseSkipOneDirection(15, false, 'up') })
+    } else {
+      const oldLevel = this.getStoredLevel(node)
+      if (oldLevel > 0) {
+        this.setStoredLevel(node, 0)
+        this.decreaseQueue.push({ from: node, data: decreaseAllDirections(oldLevel) })
+      } else this.decreaseQueue.push({ from: node, data: decreaseAllDirections(1) })
+    }
+  }
+
+  async propagateDecrease(fromNode: LightPos, decreaseData: number) {
+    const oldFromLevel = getFromLevel(decreaseData)
+    for (const dir of DIRECTIONS) {
+      const toNode = moveTowards(fromNode, dir)
+      if (this.isOutside(toNode)) continue
+      const toLevel = this.getStoredLevel(toNode)
+      if (!shouldPropagateInDirection(decreaseData, dir) || toLevel === 0) continue
+      if (toLevel <= oldFromLevel - 1) {
+        this.setStoredLevel(toNode, 0)
+        this.decreaseQueue.push({
+          from: toNode,
+          data: decreaseSkipOneDirection(toLevel, DIRECTION_REVERSE[dir]),
+        })
+      }
+      this.increaseQueue.push({
+        from: toNode,
+        data: increaseOnlyOneDirection(toLevel, false, DIRECTION_REVERSE[dir]),
+      })
+    }
+  }
+
+  async propagateIncrease(fromNode: LightPos, increaseData: number, fromLevel: number) {
+    const maxPossibleNewToLevel = fromLevel - 1
+    const fromState = isFromEmptyShape(increaseData) ? AIR_STATE : this.getState(fromNode)
+    for (const dir of DIRECTIONS) {
+      const toNode = moveTowards(fromNode, dir)
+      const toLevel = this.getStoredLevel(toNode)
+      if (!shouldPropagateInDirection(increaseData, dir) || maxPossibleNewToLevel <= toLevel)
+        continue
+      const toState = this.getState(toNode)
+      const newToLevel = fromLevel - (await this.getOpacity(toState))
+      if (newToLevel <= toLevel) continue
+      if (await this.shapeOccludes(fromState, toState, dir)) continue
+      this.setStoredLevel(toNode, newToLevel)
+      if (newToLevel > 1)
+        this.increaseQueue.push({
+          from: toNode,
+          data: increaseSkipOneDirection(
+            newToLevel,
+            await this.isEmptyShape(toState),
+            DIRECTION_REVERSE[dir],
+          ),
+        })
+    }
+  }
+
+  async propagateLightSources() {
+    const zRange = this.structure[0].length
+    const xRange = this.structure[0][0].length
+    for (let z = -1; z <= zRange; z++) {
+      for (let x = -1; x <= xRange; x++) {
+        const lowestSourceY = this.getLowestSourceY(x, z, Number.MIN_SAFE_INTEGER)
+        const northLowestSourceY = this.getLowestSourceY(x, z - 1, Number.MIN_SAFE_INTEGER)
+        const southLowestSourceY = this.getLowestSourceY(x, z + 1, Number.MIN_SAFE_INTEGER)
+        const westLowestSourceY = this.getLowestSourceY(x - 1, z, Number.MIN_SAFE_INTEGER)
+        const eastLowestSourceY = this.getLowestSourceY(x + 1, z, Number.MIN_SAFE_INTEGER)
+        const neighborLowestSourceY = Math.max(
+          northLowestSourceY,
+          southLowestSourceY,
+          westLowestSourceY,
+          eastLowestSourceY,
+        )
+        for (let y = this.structure.length + 5; y >= Math.max(0, lowestSourceY); y--) {
+          const node = packPos(x, y, z)
+          this.setStoredLevel(node, 15)
+          if (y !== lowestSourceY && y >= neighborLowestSourceY) continue
+          this.increaseQueue.push({
+            from: node,
+            data: increaseSkySourceInDirections(
+              y === lowestSourceY,
+              y < northLowestSourceY,
+              y < southLowestSourceY,
+              y < westLowestSourceY,
+              y < eastLowestSourceY,
+            ),
+          })
+        }
+      }
+    }
+  }
 }

@@ -1,7 +1,7 @@
 import type { TranslucentLevel, WorkerResponse } from '../compiler/types.ts'
 import type { BlockStructure } from '../store/structure.ts'
 import type { BlockState } from '../store/types.ts'
-import type { Renderer } from './types.ts'
+import type { Range, Renderer } from './types.ts'
 import { attribute, Fn, NodeType, texture } from 'three/tsl'
 import * as THREE from 'three/webgpu'
 import { computed, ref } from 'vue'
@@ -10,7 +10,6 @@ import { VECTOR_ONE } from '../const.ts'
 import { generateLightmap } from '../scene/lightmap.ts'
 import { AIR_STATE } from '../store/structure.ts'
 import { TextureManager } from '../store/texture.ts'
-import { DisplayRange } from './types.ts'
 
 const COLOR_NODE = Fn((args: { atlas: THREE.Texture; lightmap: THREE.Texture }) => {
   const texColor = texture(args.atlas, attribute('uv', NodeType.VECTOR2))
@@ -105,11 +104,11 @@ export class ChunkBlockRenderer implements Renderer {
     this.pendingSize.value = this.pendingSet.size
   }
 
-  onDisplayRangeChanged(scene: THREE.Scene, range: DisplayRange): void {
+  onDisplayRangeChanged(scene: THREE.Scene, update: Range, remove: Range): void {
     this.pendingScene = scene
 
-    const yMin = Math.max(0, range.rangeYMin - 1) >> 4
-    const yMax = Math.min(this.structure.y, range.rangeYMax + 1) >> 4
+    const yMin = Math.max(0, update.rangeYMin - 1) >> 4
+    const yMax = Math.min(this.structure.y, update.rangeYMax + 1) >> 4
     const filteredChunks = [...this.chunks.entries()].filter(
       ([key]) => key >> 16 >= yMin && key >> 16 <= yMax,
     )

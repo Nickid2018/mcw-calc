@@ -60,7 +60,7 @@ export interface OrCondition {
   OR: (Record<string, string> | AndCondition | OrCondition)[]
 }
 
-type OcclusionFaceData = { [Key in DirectionName]?: number[][] } & {
+export type OcclusionFaceData = { [Key in DirectionName]?: number[][] } & {
   can_occlude: boolean
   emission?: number
   dampening?: number

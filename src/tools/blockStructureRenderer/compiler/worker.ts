@@ -20,7 +20,7 @@ self.addEventListener('message', (event: MessageEvent<CompilePayload | WorkerQue
   if (event.data.type === 'chunk') {
     compileStructure(event.data).catch(console.error)
   } else if (event.data.type === 'light') {
-    doLight(event.data).catch(console.error)
+    doLight(event.data)
   } else if (['block', 'model', 'texture'].includes(event.data.type)) {
     QUERY_PROMISE.get(event.data.id)?.(event.data.data)
     QUERY_PROMISE.delete(event.data.id)

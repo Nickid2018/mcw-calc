@@ -1,9 +1,17 @@
 import type { BlockData, BlockModel, BlockState } from '../store/types.ts'
 import * as THREE from 'three/webgpu'
 
+export interface LightPos {
+  x: number
+  y: number
+  z: number
+}
+
 export interface LightPayload {
   type: 'light'
-  structures: BlockState[][][] // yzx, full structure
+  structures: BlockState[][][] // yzx, full structure, padding = 1
+  version: number
+  updates?: LightPos[]
 }
 
 export interface StructurePayload {
@@ -58,6 +66,7 @@ export interface WorkerLightResponse {
   type: 'light'
   block: number[][][]
   sky: number[][][]
+  version: number
 }
 
 export interface WorkerChunkResponse {

@@ -1,10 +1,9 @@
 // MAIN THREAD ALGORITHM
 
-import type { Renderer } from '../renderer/types.ts'
+import type { Range, Renderer } from '../renderer/types.ts'
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js'
 import { attribute, Fn, uniform, vec4 } from 'three/tsl'
 import * as THREE from 'three/webgpu'
-import { DisplayRange } from '../renderer/types.ts'
 
 export const MARK_OPACITY = uniform(0.2)
 export const MARK_MATERIAL = new THREE.MeshBasicNodeMaterial({
@@ -47,10 +46,11 @@ export class MarkRenderer implements Renderer {
     return this.marks[y]?.find(([ox, oz]) => ox === x && oz === z)?.[2]
   }
 
-  onDisplayRangeChanged(scene: THREE.Scene, range: DisplayRange): void {
-    const min = Math.max(0, range.rangeYMin - 1)
-    const max = Math.min(this.ySize - 1, range.rangeYMax + 1)
+  onDisplayRangeChanged(scene: THREE.Scene, update: Range, remove: Range): void {
+    const min = Math.max(0, update.rangeYMin - 1)
+    const max = Math.min(this.ySize - 1, update.rangeYMax + 1)
     this.objects.slice(min, max + 1).forEach((obj) => scene.remove(obj))
+    this.objects.slice(remove.rangeYMin, remove.rangeYMax).forEach((obj) => scene.remove(obj))
 
     for (let y = min; y <= max; y++) {
       const geometries: THREE.PlaneGeometry[] = []
