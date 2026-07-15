@@ -126,6 +126,11 @@ export class Rotation {
 
 export const IDENTITY_ROTATION = new Rotation(0, 0)
 
+export function clamp(value: number, min: number, max: number) {
+  if (value < min) return min
+  return Math.min(value, max)
+}
+
 // Voxel Shape Utility Functions -------------------------------------------------------------------
 
 function pointInsideAABB(point: number[], aabb: number[]) {

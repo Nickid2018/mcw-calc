@@ -40,6 +40,7 @@ export interface GeometryElement {
   element: THREE.PlaneGeometry
   tintIndex?: number
   lightEmission?: number
+  dir: DirectionName
   shade: DirectionName
 }
 
@@ -201,6 +202,7 @@ export async function validateGeometryModel(model: GeometryModel) {
           })
           faceData[tLevel].push({
             element: planeGeometry,
+            dir: direction,
             shade: element.shade_direction_override ?? ((element.shade ?? true) ? direction : 'up'),
             lightEmission: element.light_emission,
             tintIndex: face.tintindex,
@@ -208,6 +210,7 @@ export async function validateGeometryModel(model: GeometryModel) {
         } else {
           model.nonCullFaces[tLevel].push({
             element: planeGeometry,
+            dir: direction,
             shade: element.shade_direction_override ?? ((element.shade ?? true) ? direction : 'up'),
             lightEmission: element.light_emission,
             tintIndex: face.tintindex,

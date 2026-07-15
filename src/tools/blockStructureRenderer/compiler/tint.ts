@@ -1,15 +1,5 @@
-import type { BlockState, DirectionName } from '../store/types.ts'
-
-export type CardinalLighting = Record<DirectionName, number>
-
-export const DEFAULT_CARDINAL_LIGHTING: CardinalLighting = {
-  down: 0.5,
-  up: 1,
-  east: 0.6,
-  west: 0.6,
-  north: 0.8,
-  south: 0.8,
-}
+import type { BlockState } from '../store/types.ts'
+import { clamp } from './math.ts'
 
 export const GRASS_LIKE_BLOCK = new Set([
   'large_fern',
@@ -31,22 +21,6 @@ export const FOLIAGE_BLOCK = new Set([
   'vine',
   'mangrove_leaves',
 ])
-
-export function colorApply(data: number[], multi: number[]) {
-  for (let i = 0; i < data.length; i++) {
-    data[i] = data[i] * multi[i % multi.length]
-  }
-}
-
-export function applyCardinalLighting(dir: DirectionName, cardinal: CardinalLighting) {
-  const gray = cardinal[dir]
-  return [gray, gray, gray, 1, gray, gray, gray, 1, gray, gray, gray, 1, gray, gray, gray, 1]
-}
-
-function clamp(value: number, min: number, max: number) {
-  if (value < min) return min
-  return Math.min(value, max)
-}
 
 export function hardcodedBlockTint(
   blockState: BlockState,

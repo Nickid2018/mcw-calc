@@ -18,6 +18,7 @@ export interface StructurePayload {
   type: 'chunk'
   origin: THREE.Vector3
   version: number
+  enableAO: boolean
   structure: BlockState[][][] // yzx, padding = 1
   tints: ([number, number, number, number][] | null)[][][] // yzx, padding = 1
 }

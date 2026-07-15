@@ -8,15 +8,17 @@ import type {
 import type { StructurePayload, TranslucentLevel } from './types.ts'
 import * as THREE from 'three/webgpu'
 import { stateToKey } from '../store/types.ts'
-import { getOrCreateModelCollection, validateGeometryModel } from './block.ts'
 import {
   applyCardinalLighting,
+  BlockModelLighter,
   colorApply,
   DEFAULT_CARDINAL_LIGHTING,
-  hardcodedBlockTint,
-} from './coloring.ts'
+  unpackToShader,
+} from './ao.ts'
+import { getOrCreateModelCollection, validateGeometryModel } from './block.ts'
 import { DIRECTION_REVERSE, isOcclusion, moveTowards } from './math.ts'
 import { hardcodedSkipRendering } from './occludes.ts'
+import { hardcodedBlockTint } from './tint.ts'
 import { TransferableGeometry } from './types.ts'
 import { queryBlock } from './worker.ts'
 
@@ -27,7 +29,6 @@ export const BUFFER_ATTRIBUTES_MAP = {
   uv: 2,
   uv2: 2,
   color: 4,
-  normal: 3,
 }
 export const INDEX_ARRAY = [0, 2, 1, 2, 3, 1]
 
@@ -68,6 +69,7 @@ class FastMergeGeometry<A extends string> {
 export async function compileStructure(payload: StructurePayload) {
   const { origin, structure } = payload
   const { x: xo, y: yo, z: zo } = origin
+  const lighter = new BlockModelLighter()
 
   const blocks = [...new Set(structure.flat(3).map((b) => b.name))]
   const blockData = await queryBlock(blocks)
@@ -109,47 +111,110 @@ export async function compileStructure(payload: StructurePayload) {
         )
         await Promise.all(models.map(validateGeometryModel))
 
-        models.forEach((model) => {
-          const [finalX, finalY, finalZ] = [x + xo - 1, y + yo - 1, z + zo - 1]
+        await Promise.all(
+          models.map(async (model) => {
+            const [finalX, finalY, finalZ] = [x + xo - 1, y + yo - 1, z + zo - 1]
 
-          const _pushElements = ([l, elements]: [string, GeometryElement[]]) => {
-            elements.forEach((element) => {
+            const _pushElement = (
+              l: TranslucentLevel,
+              element: GeometryElement,
+              lightCoords: number[],
+              lightColor: number[],
+            ) => {
               const positionAttr = element.element.getAttribute('position').array
-              const color = applyCardinalLighting(element.shade, DEFAULT_CARDINAL_LIGHTING)
 
               if (element.tintIndex !== undefined) {
                 let tint = payload.tints[y][z][x]?.[element.tintIndex] || null
                 if (!tint) tint = hardcodedBlockTint(thisState, element.tintIndex)
-                if (tint) colorApply(color, tint)
+                if (tint) colorApply(lightColor, tint)
               }
 
               layers[l as TranslucentLevel].pushFace({
                 position: _translatePlane(positionAttr, finalX, finalY, finalZ),
                 uv: element.element.getAttribute('uv').array,
-                uv2: [1, 0, 1, 0, 1, 0, 1, 0],
-                color,
-                normal: element.element.getAttribute('normal').array,
+                uv2: lightCoords.map(unpackToShader).flat(),
+                color: lightColor,
               })
-            })
-          }
+            }
 
-          Object.entries(model.nonCullFaces).forEach(_pushElements)
-          Object.entries(model.cullFaces).forEach(([d, faces]) => {
-            const dir = d as DirectionName
-            const [dx, dy, dz] = moveTowards(x, y, z, dir)
-            const otherState = structure[dy][dz][dx]
-            if (hardcodedSkipRendering(thisState, otherState, dir)) return
+            await Promise.all(
+              Object.entries(model.nonCullFaces)
+                .map(async ([l, elements]: [string, GeometryElement[]]) =>
+                  elements.map(async (element) => {
+                    if (payload.enableAO) {
+                      // ...
+                    } else {
+                      const { faceCubic } = await lighter.prepareQuadShape(
+                        thisState,
+                        element,
+                        false,
+                      )
+                      const lightCoords = faceCubic
+                        ? await lighter.getLightCoords(thisState, finalX, finalY, finalZ)
+                        : await lighter.getLightCoords(
+                            thisState,
+                            ...moveTowards(finalX, finalY, finalZ, element.dir),
+                          )
+                      const lightColor = applyCardinalLighting(
+                        element.shade,
+                        DEFAULT_CARDINAL_LIGHTING,
+                      )
+                      _pushElement(
+                        l as TranslucentLevel,
+                        element,
+                        Array.from<number>({ length: 4 }).fill(lightCoords),
+                        lightColor,
+                      )
+                    }
+                  }),
+                )
+                .flat(),
+            )
 
-            const otherOcclusion = occlusions[dy][dz][dx]
-            const thisFace = thisOcclusion[dir]
-            const otherFace = otherOcclusion[DIRECTION_REVERSE[dir]] ?? []
-            const occlusion =
-              thisFace && otherOcclusion.can_occlude && isOcclusion(thisFace, otherFace)
-            if (occlusion) return
+            await Promise.all(
+              Object.entries(model.cullFaces).map(async ([d, faces]) => {
+                const dir = d as DirectionName
+                const [dx, dy, dz] = moveTowards(x, y, z, dir)
+                const otherState = structure[dy][dz][dx]
+                if (hardcodedSkipRendering(thisState, otherState, dir)) return
 
-            Object.entries(faces).forEach(_pushElements)
-          })
-        })
+                const otherOcclusion = occlusions[dy][dz][dx]
+                const thisFace = thisOcclusion[dir]
+                const otherFace = otherOcclusion[DIRECTION_REVERSE[dir]] ?? []
+                const occlusion =
+                  thisFace && otherOcclusion.can_occlude && isOcclusion(thisFace, otherFace)
+                if (occlusion) return
+
+                await Promise.all(
+                  Object.entries(faces)
+                    .map(([l, elements]: [string, GeometryElement[]]) =>
+                      elements.map(async (element) => {
+                        if (payload.enableAO) {
+                          // ...
+                        } else {
+                          const lightCoords = await lighter.getLightCoords(
+                            thisState,
+                            ...moveTowards(finalX, finalY, finalZ, dir),
+                          )
+                          const lightColor = applyCardinalLighting(
+                            element.shade,
+                            DEFAULT_CARDINAL_LIGHTING,
+                          )
+                          _pushElement(
+                            l as TranslucentLevel,
+                            element,
+                            Array.from<number>({ length: 4 }).fill(lightCoords),
+                            lightColor,
+                          )
+                        }
+                      }),
+                    )
+                    .flat(),
+                )
+              }),
+            )
+          }),
+        )
       }
     }
   }

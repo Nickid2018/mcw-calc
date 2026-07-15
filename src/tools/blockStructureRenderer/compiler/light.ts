@@ -134,6 +134,9 @@ function isIncreaseFromEmission(entry: number) {
 
 // light engine
 
+let initializeResolved = () => {}
+const initializePromise = new Promise<void>((resolve) => (initializeResolved = resolve))
+
 let BLOCK_ENGINE: BlockLightEngine | null = null
 let SKY_ENGINE: SkyLightEngine | null = null
 let lastVersionPromise = Promise.resolve()
@@ -143,6 +146,15 @@ export function doLight(payload: LightPayload) {
   const lastPromise = lastVersionPromise
   lastVersionPromise = new Promise((resolve) => (resolveVersion = resolve))
   internalDoLight(payload, lastPromise, resolveVersion).catch(console.error)
+}
+
+export async function getLight(x: number, y: number, z: number): Promise<[number, number]> {
+  await initializePromise
+  await lastVersionPromise
+  const node = packPos(x + 1, y + 1, z + 1)
+  const block = BLOCK_ENGINE?.getStoredLevel(node) ?? 0
+  const sky = SKY_ENGINE?.getStoredLevel(node) ?? 0
+  return [block, sky]
 }
 
 async function internalDoLight(payload: LightPayload, promise: Promise<void>, resolve: () => void) {
@@ -165,6 +177,7 @@ async function internalDoLight(payload: LightPayload, promise: Promise<void>, re
     version: payload.version,
   })
   resolve()
+  if (!payload.updates) initializeResolved()
 }
 
 export abstract class LightEngine {
