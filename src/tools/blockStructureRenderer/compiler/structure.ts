@@ -1,13 +1,15 @@
 import type { DirectionName } from '../store/types.ts'
+import { stateToKey } from '../store/types.ts'
 import type {
   GeometryCollection,
   GeometryElement,
   GeometryModel,
   GeometryModelGroup,
 } from './block.ts'
+import { getOrCreateModelCollection, validateGeometryModel } from './block.ts'
 import type { StructurePayload, TranslucentLevel } from './types.ts'
+import { TransferableGeometry } from './types.ts'
 import * as THREE from 'three/webgpu'
-import { stateToKey } from '../store/types.ts'
 import {
   applyCardinalLighting,
   BlockModelLighter,
@@ -15,11 +17,9 @@ import {
   DEFAULT_CARDINAL_LIGHTING,
   unpackToShader,
 } from './ao.ts'
-import { getOrCreateModelCollection, validateGeometryModel } from './block.ts'
 import { DIRECTION_REVERSE, isOcclusion, moveTowards } from './math.ts'
 import { hardcodedSkipRendering } from './occludes.ts'
 import { hardcodedBlockTint } from './tint.ts'
-import { TransferableGeometry } from './types.ts'
 import { queryBlock } from './worker.ts'
 
 declare const self: DedicatedWorkerGlobalScope
@@ -150,11 +150,11 @@ export async function compileStructure(payload: StructurePayload) {
                         false,
                       )
                       const lightCoords = faceCubic
-                        ? await lighter.getLightCoords(thisState, finalX, finalY, finalZ)
-                        : await lighter.getLightCoords(
+                        ? await lighter.getLightCoords(
                             thisState,
                             ...moveTowards(finalX, finalY, finalZ, element.dir),
                           )
+                        : await lighter.getLightCoords(thisState, finalX, finalY, finalZ)
                       const lightColor = applyCardinalLighting(
                         element.shade,
                         DEFAULT_CARDINAL_LIGHTING,
