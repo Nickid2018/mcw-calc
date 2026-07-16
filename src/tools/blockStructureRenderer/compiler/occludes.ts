@@ -24,6 +24,8 @@ export const HALF_TRANSPARENT_BLOCKS = [
   'tinted_glass',
 ]
 
+export const IRON_BAR_LIKE_BLOCKS = ['iron_bars', /.*glass_pane$/, /.*copper_bars$/]
+
 export function hardcodedSkipRendering(
   thisBlock: BlockState,
   otherBlock: BlockState,
@@ -31,8 +33,8 @@ export function hardcodedSkipRendering(
 ) {
   if (thisBlock.name === 'powder_snow' && otherBlock.name === 'powder_snow') return true
   if (
-    thisBlock.name === 'iron_bars' &&
-    otherBlock.name === 'iron_bars' &&
+    checkNameInSet(thisBlock.name, IRON_BAR_LIKE_BLOCKS) &&
+    checkNameInSet(otherBlock.name, IRON_BAR_LIKE_BLOCKS) &&
     isHorizontalDirection(direction) &&
     thisBlock.properties[direction] === 'true' &&
     otherBlock.properties[DIRECTION_REVERSE[direction]] === 'true'

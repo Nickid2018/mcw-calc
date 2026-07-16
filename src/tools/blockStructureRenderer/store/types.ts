@@ -66,6 +66,8 @@ export type OcclusionFaceData = { [Key in DirectionName]?: number[][] } & {
   dampening?: number
   shape_light_occlusion?: boolean
   collision_full?: boolean
+  shade_brightness?: number
+  view_blocking?: boolean
 }
 
 interface LiquidComputationData {

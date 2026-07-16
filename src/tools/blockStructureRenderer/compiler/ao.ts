@@ -2,7 +2,7 @@ import type { BlockState, DirectionName } from '../store/types.ts'
 import type { GeometryElement } from './block.ts'
 import { stateToKey } from '../store/types.ts'
 import { getLight } from './light.ts'
-import { clamp } from './math.ts'
+import { clamp, moveTowards } from './math.ts'
 import { queryBlock } from './worker.ts'
 
 export type CardinalLighting = Record<DirectionName, number>
@@ -63,14 +63,93 @@ enum SizeInfo {
   FLIP_SOUTH,
 }
 
+interface AdjacencyInfo {
+  corners: DirectionName[]
+  doNonCubicWeight: boolean
+  vert0Weights: SizeInfo[]
+  vert1Weights: SizeInfo[]
+  vert2Weights: SizeInfo[]
+  vert3Weights: SizeInfo[]
+}
+
+// prettier-ignore
+export const ADJACENCY_INFO: Record<DirectionName, AdjacencyInfo> = {
+  down: {
+    corners: ['west', 'east', 'north', 'south'],
+    doNonCubicWeight: true,
+    vert0Weights: [SizeInfo.FLIP_WEST, SizeInfo.SOUTH, SizeInfo.FLIP_WEST, SizeInfo.FLIP_SOUTH, SizeInfo.WEST, SizeInfo.FLIP_SOUTH, SizeInfo.WEST, SizeInfo.SOUTH],
+    vert1Weights: [SizeInfo.FLIP_WEST, SizeInfo.NORTH, SizeInfo.FLIP_WEST, SizeInfo.FLIP_NORTH, SizeInfo.WEST, SizeInfo.FLIP_NORTH, SizeInfo.WEST, SizeInfo.NORTH],
+    vert2Weights: [SizeInfo.FLIP_EAST, SizeInfo.NORTH, SizeInfo.FLIP_EAST, SizeInfo.FLIP_NORTH, SizeInfo.EAST, SizeInfo.FLIP_NORTH, SizeInfo.EAST, SizeInfo.NORTH],
+    vert3Weights: [SizeInfo.FLIP_EAST, SizeInfo.SOUTH, SizeInfo.FLIP_EAST, SizeInfo.FLIP_SOUTH, SizeInfo.EAST, SizeInfo.FLIP_SOUTH, SizeInfo.EAST, SizeInfo.SOUTH],
+  },
+  up: {
+    corners: ['east', 'west', 'north', 'south'],
+    doNonCubicWeight: true,
+    vert0Weights: [SizeInfo.EAST, SizeInfo.SOUTH, SizeInfo.EAST, SizeInfo.FLIP_SOUTH, SizeInfo.FLIP_EAST, SizeInfo.FLIP_SOUTH, SizeInfo.FLIP_EAST, SizeInfo.SOUTH],
+    vert1Weights: [SizeInfo.EAST, SizeInfo.NORTH, SizeInfo.EAST, SizeInfo.FLIP_NORTH, SizeInfo.FLIP_EAST, SizeInfo.FLIP_NORTH, SizeInfo.FLIP_EAST, SizeInfo.NORTH],
+    vert2Weights: [SizeInfo.WEST, SizeInfo.NORTH, SizeInfo.WEST, SizeInfo.FLIP_NORTH, SizeInfo.FLIP_WEST, SizeInfo.FLIP_NORTH, SizeInfo.FLIP_WEST, SizeInfo.NORTH],
+    vert3Weights: [SizeInfo.WEST, SizeInfo.SOUTH, SizeInfo.WEST, SizeInfo.FLIP_SOUTH, SizeInfo.FLIP_WEST, SizeInfo.FLIP_SOUTH, SizeInfo.FLIP_WEST, SizeInfo.SOUTH],
+  },
+  north: {
+    corners: ['up', 'down', 'east', 'west'],
+    doNonCubicWeight: true,
+    vert0Weights: [SizeInfo.UP, SizeInfo.FLIP_WEST, SizeInfo.UP, SizeInfo.WEST, SizeInfo.FLIP_UP, SizeInfo.WEST, SizeInfo.FLIP_UP, SizeInfo.FLIP_WEST],
+    vert1Weights: [SizeInfo.UP, SizeInfo.FLIP_EAST, SizeInfo.UP, SizeInfo.EAST, SizeInfo.FLIP_UP, SizeInfo.EAST, SizeInfo.FLIP_UP, SizeInfo.FLIP_EAST],
+    vert2Weights: [SizeInfo.DOWN, SizeInfo.FLIP_EAST, SizeInfo.DOWN, SizeInfo.EAST, SizeInfo.FLIP_DOWN, SizeInfo.EAST, SizeInfo.FLIP_DOWN, SizeInfo.FLIP_EAST],
+    vert3Weights: [SizeInfo.DOWN, SizeInfo.FLIP_WEST, SizeInfo.DOWN, SizeInfo.WEST, SizeInfo.FLIP_DOWN, SizeInfo.WEST, SizeInfo.FLIP_DOWN, SizeInfo.FLIP_WEST],
+  },
+  south: {
+    corners: ['west', 'east', 'down', 'up'],
+    doNonCubicWeight: true,
+    vert0Weights: [SizeInfo.UP, SizeInfo.FLIP_WEST, SizeInfo.FLIP_UP, SizeInfo.FLIP_WEST, SizeInfo.FLIP_UP, SizeInfo.WEST, SizeInfo.UP, SizeInfo.WEST],
+    vert1Weights: [SizeInfo.DOWN, SizeInfo.FLIP_WEST, SizeInfo.FLIP_DOWN, SizeInfo.FLIP_WEST, SizeInfo.FLIP_DOWN, SizeInfo.WEST, SizeInfo.DOWN, SizeInfo.WEST],
+    vert2Weights: [SizeInfo.DOWN, SizeInfo.FLIP_EAST, SizeInfo.FLIP_DOWN, SizeInfo.FLIP_EAST, SizeInfo.FLIP_DOWN, SizeInfo.EAST, SizeInfo.DOWN, SizeInfo.EAST],
+    vert3Weights: [SizeInfo.UP, SizeInfo.FLIP_EAST, SizeInfo.FLIP_UP, SizeInfo.FLIP_EAST, SizeInfo.FLIP_UP, SizeInfo.EAST, SizeInfo.UP, SizeInfo.EAST],
+  },
+  west: {
+    corners: ['up', 'down', 'north', 'south'],
+    doNonCubicWeight: true,
+    vert0Weights: [SizeInfo.UP, SizeInfo.SOUTH, SizeInfo.UP, SizeInfo.FLIP_SOUTH, SizeInfo.FLIP_UP, SizeInfo.FLIP_SOUTH, SizeInfo.FLIP_UP, SizeInfo.SOUTH],
+    vert1Weights: [SizeInfo.UP, SizeInfo.NORTH, SizeInfo.UP, SizeInfo.FLIP_NORTH, SizeInfo.FLIP_UP, SizeInfo.FLIP_NORTH, SizeInfo.FLIP_UP, SizeInfo.NORTH],
+    vert2Weights: [SizeInfo.DOWN, SizeInfo.NORTH, SizeInfo.DOWN, SizeInfo.FLIP_NORTH, SizeInfo.FLIP_DOWN, SizeInfo.FLIP_NORTH, SizeInfo.FLIP_DOWN, SizeInfo.NORTH],
+    vert3Weights: [SizeInfo.DOWN, SizeInfo.SOUTH, SizeInfo.DOWN, SizeInfo.FLIP_SOUTH, SizeInfo.FLIP_DOWN, SizeInfo.FLIP_SOUTH, SizeInfo.FLIP_DOWN, SizeInfo.SOUTH],
+  },
+  east: {
+    corners: ['down', 'up', 'north', 'south'],
+    doNonCubicWeight: true,
+    vert0Weights: [SizeInfo.FLIP_DOWN, SizeInfo.SOUTH, SizeInfo.FLIP_DOWN, SizeInfo.FLIP_SOUTH, SizeInfo.DOWN, SizeInfo.FLIP_SOUTH, SizeInfo.DOWN, SizeInfo.SOUTH],
+    vert1Weights: [SizeInfo.FLIP_DOWN, SizeInfo.NORTH, SizeInfo.FLIP_DOWN, SizeInfo.FLIP_NORTH, SizeInfo.DOWN, SizeInfo.FLIP_NORTH, SizeInfo.DOWN, SizeInfo.NORTH],
+    vert2Weights: [SizeInfo.FLIP_UP, SizeInfo.NORTH, SizeInfo.FLIP_UP, SizeInfo.FLIP_NORTH, SizeInfo.UP, SizeInfo.FLIP_NORTH, SizeInfo.UP, SizeInfo.NORTH],
+    vert3Weights: [SizeInfo.FLIP_UP, SizeInfo.SOUTH, SizeInfo.FLIP_UP, SizeInfo.FLIP_SOUTH, SizeInfo.UP, SizeInfo.FLIP_SOUTH, SizeInfo.UP, SizeInfo.SOUTH],
+  }
+}
+
 export class BlockModelLighter {
   async _getEmission(state: BlockState) {
     const blockData = (await queryBlock([state.name]))[state.name]
     return blockData?.occlusion[stateToKey(state)]?.emission ?? 0
   }
+
   async _getCollisionFull(state: BlockState) {
     const blockData = (await queryBlock([state.name]))[state.name]
     return !!blockData?.occlusion[stateToKey(state)].collision_full
+  }
+
+  async _getViewBlocking(state: BlockState) {
+    const blockData = (await queryBlock([state.name]))[state.name]
+    return !!blockData?.occlusion[stateToKey(state)].view_blocking
+  }
+
+  async _getShadeBrightness(state: BlockState) {
+    const blockData = (await queryBlock([state.name]))[state.name]
+    const stateData = blockData?.occlusion[stateToKey(state)]
+    const shadeBrightness = stateData.shade_brightness
+    return shadeBrightness === undefined ? (stateData?.collision_full ? 0.2 : 1) : shadeBrightness
+  }
+
+  async _getLightDampening(state: BlockState) {
+    const blockData = (await queryBlock([state.name]))[state.name]
+    return blockData?.occlusion[stateToKey(state)]?.dampening ?? 0
   }
 
   async getLightCoords(state: BlockState, x: number, y: number, z: number) {
@@ -118,5 +197,51 @@ export class BlockModelLighter {
       return { faceCubic, facePartial, faceShape }
     }
     return { faceCubic, facePartial }
+  }
+
+  async prepareQuadAmbientOcclusion(
+    state: BlockState,
+    element: GeometryElement,
+    [x, y, z]: number[],
+    blockGetter: (x: number, y: number, z: number) => BlockState,
+  ) {
+    const { faceCubic, facePartial, faceShape } = await this.prepareQuadShape(state, element, true)
+    const [bx, by, bz] = faceCubic ? moveTowards(x, y, z, element.dir) : [x, y, z]
+    const info = ADJACENCY_INFO[element.dir]
+
+    const _fetchNeighbor = async (corner: number): Promise<[BlockState, number, number]> => {
+      const [posX, posY, posZ] = moveTowards(bx, by, bz, info.corners[corner])
+      const state = blockGetter(posX, posY, posZ)
+      const light = await this.getLightCoords(state, posX, posY, posZ)
+      const shade = await this._getShadeBrightness(state)
+      return [state, light, shade]
+    }
+    const [
+      [state0, light0, shade0],
+      [state1, light1, shade1],
+      [state2, light2, shade2],
+      [state3, light3, shade3],
+    ] = await Promise.all([
+      _fetchNeighbor(0),
+      _fetchNeighbor(1),
+      _fetchNeighbor(2),
+      _fetchNeighbor(3),
+    ])
+
+    const [mx, my, mz] = moveTowards(bx, by, bz, element.dir)
+    const _fetchTranslucent = async (corner: number) => {
+      const state = blockGetter(...moveTowards(mx, my, mz, info.corners[corner]))
+      return !(await this._getViewBlocking(state)) || (await this._getLightDampening(state)) === 0
+    }
+    const [translucent0, translucent1, translucent2, translucent3] = await Promise.all([
+      _fetchTranslucent(0),
+      _fetchTranslucent(1),
+      _fetchTranslucent(2),
+      _fetchTranslucent(3),
+    ])
+
+    const _makeCorner = async (corner1: number, corner2: number) => {
+      
+    }
   }
 }
