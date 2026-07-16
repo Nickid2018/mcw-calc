@@ -1,25 +1,27 @@
 import type { DirectionName } from '../store/types.ts'
-import { stateToKey } from '../store/types.ts'
 import type {
   GeometryCollection,
   GeometryElement,
   GeometryModel,
   GeometryModelGroup,
 } from './block.ts'
-import { getOrCreateModelCollection, validateGeometryModel } from './block.ts'
 import type { StructurePayload, TranslucentLevel } from './types.ts'
-import { TransferableGeometry } from './types.ts'
 import * as THREE from 'three/webgpu'
+import { AIR_STATE } from '../store/structure.ts'
+import { stateToKey } from '../store/types.ts'
 import {
   applyCardinalLighting,
   BlockModelLighter,
+  cardinalLighting,
   colorApply,
   DEFAULT_CARDINAL_LIGHTING,
   unpackToShader,
 } from './ao.ts'
+import { getOrCreateModelCollection, validateGeometryModel } from './block.ts'
 import { DIRECTION_REVERSE, isOcclusion, moveTowards } from './math.ts'
 import { hardcodedSkipRendering } from './occludes.ts'
 import { hardcodedBlockTint } from './tint.ts'
+import { TransferableGeometry } from './types.ts'
 import { queryBlock } from './worker.ts'
 
 declare const self: DedicatedWorkerGlobalScope
@@ -71,6 +73,8 @@ export async function compileStructure(payload: StructurePayload) {
   const { x: xo, y: yo, z: zo } = origin
   const lighter = new BlockModelLighter()
 
+  // payload.enableAO = true
+
   const blocks = [...new Set(structure.flat(3).map((b) => b.name))]
   const blockData = await queryBlock(blocks)
   const blockOcclusion = Object.fromEntries(
@@ -92,6 +96,9 @@ export async function compileStructure(payload: StructurePayload) {
         >(async (b) => [stateToKey(b), await getOrCreateModelCollection(b)]),
     ),
   )
+  const blockGetter = (x: number, y: number, z: number) => {
+    return structure[x - xo + 1]?.[y - yo + 1]?.[z - zo + 1] ?? AIR_STATE
+  }
 
   const layers: Record<TranslucentLevel, FastMergeGeometry<keyof typeof BUFFER_ATTRIBUTES_MAP>> = {
     solid: new FastMergeGeometry(BUFFER_ATTRIBUTES_MAP),
@@ -142,7 +149,15 @@ export async function compileStructure(payload: StructurePayload) {
                 .map(async ([l, elements]: [string, GeometryElement[]]) =>
                   elements.map(async (element) => {
                     if (payload.enableAO) {
-                      // ...
+                      const { lightCoords, color } = await lighter.prepareQuadAmbientOcclusion(
+                        thisState,
+                        element,
+                        [finalX, finalY, finalZ],
+                        blockGetter,
+                      )
+                      const cardinal = cardinalLighting(element.shade, DEFAULT_CARDINAL_LIGHTING)
+                      colorApply(color, [cardinal, cardinal, cardinal, 1])
+                      _pushElement(l as TranslucentLevel, element, lightCoords, color)
                     } else {
                       const { faceCubic } = await lighter.prepareQuadShape(
                         thisState,
@@ -190,7 +205,18 @@ export async function compileStructure(payload: StructurePayload) {
                     .map(([l, elements]: [string, GeometryElement[]]) =>
                       elements.map(async (element) => {
                         if (payload.enableAO) {
-                          // ...
+                          const { lightCoords, color } = await lighter.prepareQuadAmbientOcclusion(
+                            thisState,
+                            element,
+                            [finalX, finalY, finalZ],
+                            blockGetter,
+                          )
+                          const cardinal = cardinalLighting(
+                            element.shade,
+                            DEFAULT_CARDINAL_LIGHTING,
+                          )
+                          colorApply(color, [cardinal, cardinal, cardinal, 1])
+                          _pushElement(l as TranslucentLevel, element, lightCoords, color)
                         } else {
                           const lightCoords = await lighter.getLightCoords(
                             thisState,
