@@ -34,7 +34,7 @@ export const BUFFER_ATTRIBUTES_MAP = {
 }
 export const INDEX_ARRAY = [0, 2, 1, 2, 3, 1]
 
-class FastMergeGeometry<A extends string> {
+export class FastMergeGeometry<A extends string> {
   private lastIndex = 0
   private readonly buffers: Record<string, number[]>
   private readonly indexArray: number[] = []

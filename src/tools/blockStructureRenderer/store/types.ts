@@ -19,6 +19,18 @@ export function isVerticalDirection(direction: DirectionName): boolean {
   return direction === 'up' || direction === 'down'
 }
 
+export function getStepX(direction: DirectionName) {
+  if (direction === 'east') return 1
+  if (direction === 'west') return -1
+  return 0
+}
+
+export function getStepZ(direction: DirectionName) {
+  if (direction === 'south') return 1
+  if (direction === 'north') return -1
+  return 0
+}
+
 // Block data --------------------------------------------------------------------------------------
 export interface BlockData {
   state: BlockStateModelCollection
@@ -71,7 +83,7 @@ export type OcclusionFaceData = { [Key in DirectionName]?: number[][] } & {
   solid_render?: boolean
 }
 
-interface LiquidComputationData {
+export interface LiquidComputationData {
   blocks_motion: boolean
   face_sturdy: string[]
 }
