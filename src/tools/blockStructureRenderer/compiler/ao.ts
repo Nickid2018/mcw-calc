@@ -27,6 +27,15 @@ export function applyCardinalLighting(dir: DirectionName, cardinal: CardinalLigh
   return [gray, gray, gray, 1, gray, gray, gray, 1, gray, gray, gray, 1, gray, gray, gray, 1]
 }
 
+export function multiplyCardinalLighting(
+  color: number[],
+  dir: DirectionName,
+  cardinal: CardinalLighting,
+) {
+  const gray = cardinal[dir]
+  return [color[0] * gray, color[1] * gray, color[2] * gray, color[3]]
+}
+
 export function cardinalLighting(dir: DirectionName, cardinal: CardinalLighting) {
   return cardinal[dir]
 }

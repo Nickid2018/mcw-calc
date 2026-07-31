@@ -18,6 +18,7 @@ import {
   unpackToShader,
 } from './ao.ts'
 import { getOrCreateModelCollection, validateGeometryModel } from './block.ts'
+import { compileLiquid } from './fluid.ts'
 import { DIRECTION_REVERSE, isOcclusion, moveTowards } from './math.ts'
 import { hardcodedSkipRendering } from './occludes.ts'
 import { hardcodedBlockTint } from './tint.ts'
@@ -43,12 +44,18 @@ export class FastMergeGeometry<A extends string> {
     this.buffers = Object.fromEntries(Object.entries(attributeMap).map(([k]) => [k, []]))
   }
 
-  pushFace(attributes: Record<A, number[] | THREE.TypedArray>) {
+  pushFace(attributes: Record<A, number[] | THREE.TypedArray>, indexArray: number[] = INDEX_ARRAY) {
     Object.entries<number[] | THREE.TypedArray>(attributes).forEach(([k, v]) =>
       this.buffers[k]?.push(...v),
     )
-    this.indexArray.push(...INDEX_ARRAY.map((v) => v + this.lastIndex))
+    this.indexArray.push(...indexArray.map((v) => v + this.lastIndex))
     this.lastIndex += 4
+  }
+
+  merge(other: FastMergeGeometry<A>) {
+    Object.entries(other.buffers).forEach(([k, v]) => this.buffers[k].push(...v))
+    this.indexArray.push(...other.indexArray.map((i) => i + this.lastIndex))
+    this.lastIndex += other.lastIndex
   }
 
   finalize() {
@@ -82,10 +89,18 @@ export async function compileStructure(payload: StructurePayload) {
       .map(([_, data]) => Object.entries(data.occlusion))
       .flat(),
   )
+  const blockLiquidData = Object.fromEntries(
+    Object.entries(blockData)
+      .map(([_, data]) => Object.entries(data.liquid))
+      .flat(),
+  )
 
   const transformed = structure.map((v1) => v1.map((v2) => v2.map(stateToKey)))
   const occlusions = structure.map((v1) =>
     v1.map((v2) => v2.map((s) => blockOcclusion[stateToKey(s)])),
+  )
+  const liquidData = structure.map((v1) =>
+    v1.map((v2) => v2.map((s) => blockLiquidData[stateToKey(s)])),
   )
   const keys = new Map(
     await Promise.all(
@@ -244,6 +259,9 @@ export async function compileStructure(payload: StructurePayload) {
       }
     }
   }
+
+  const liquidLayer = await compileLiquid(payload, occlusions, liquidData)
+  layers.translucent.merge(liquidLayer)
 
   const result: [string, TransferableGeometry][] = Object.entries(layers)
     .filter(([_, b]) => b.notEmpty())

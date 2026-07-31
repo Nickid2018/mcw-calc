@@ -6,7 +6,7 @@ import type { BlockState, DirectionName } from '../store/types.ts'
 import { isHorizontalDirection, isVerticalDirection } from '../store/types.ts'
 import { DIRECTION_REVERSE } from './math.ts'
 
-function checkNameInSet(name: string, nameSet: (string | RegExp)[]) {
+export function checkNameInSet(name: string, nameSet: (string | RegExp)[]) {
   return nameSet.some((nameTest) =>
     nameTest instanceof RegExp ? nameTest.test(name) : nameTest === name,
   )
@@ -23,6 +23,8 @@ export const HALF_TRANSPARENT_BLOCKS = [
   /.*stained_glass$/,
   'tinted_glass',
 ]
+
+export const LEAVES_BLOCKS = [/.*leaves$/]
 
 export const IRON_BAR_LIKE_BLOCKS = ['iron_bars', /.*glass_pane$/, /.*copper_bars$/]
 
