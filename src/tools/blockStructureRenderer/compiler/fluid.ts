@@ -349,8 +349,8 @@ export async function compileLiquid(
           if (backward) {
             // prettier-ignore
             const positionB = [
-            xo + x - 1, yo + y + nw - 1, zo + z - 1, xo + x - 1, yo + y + sw - 1, zo + z    , // NW SW
-            xo + x    , yo + y + se - 1, zo + z    , xo + x    , yo + y + ne - 1, zo + z - 1, // SE NE
+              xo + x - 1, yo + y + nw - 1, zo + z - 1, xo + x - 1, yo + y + sw - 1, zo + z    , // NW SW
+              xo + x    , yo + y + se - 1, zo + z    , xo + x    , yo + y + ne - 1, zo + z - 1, // SE NE
             ]
             const uvB = [nwu, nwv, swu, swv, seu, sev, neu, nev]
             geometry.pushFace({ position: positionB, uv: uvB, uv2, color }, FLUID_INDEX_ARRAY)

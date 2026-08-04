@@ -209,12 +209,12 @@ export const ADJACENCY_INFO: Record<DirectionName, AdjacencyInfo> = {
 }
 
 export const AMBIENT_VERTEX_REMAP: Record<DirectionName, number[]> = {
-  down: [0, 1, 2, 3],
-  up: [2, 3, 0, 1],
-  north: [3, 0, 1, 2],
-  south: [0, 1, 2, 3],
-  west: [3, 0, 1, 2],
-  east: [1, 2, 3, 0],
+  down: [0, 2, 1, 3],
+  up: [2, 0, 3, 1],
+  north: [3, 1, 0, 2],
+  south: [0, 2, 1, 3],
+  west: [3, 1, 0, 2],
+  east: [1, 3, 2, 0],
 }
 
 export class BlockModelLighter {
@@ -374,8 +374,8 @@ export class BlockModelLighter {
       lightCenter = await this.getLightCoords(nextState, ...nextPos)
     }
     const shadeCenter = faceCubic
-      ? await this.getLightCoords(state, bx, by, bz)
-      : await this.getLightCoords(state, x, y, z)
+      ? await this._getShadeBrightness(blockGetter(bx, by, bz))
+      : await this._getShadeBrightness(state)
 
     const remap = AMBIENT_VERTEX_REMAP[element.dir]
     const _remapPush = (...data: number[][]) => {

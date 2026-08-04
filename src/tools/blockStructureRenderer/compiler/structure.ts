@@ -80,7 +80,7 @@ export async function compileStructure(payload: StructurePayload) {
   const { x: xo, y: yo, z: zo } = origin
   const lighter = new BlockModelLighter()
 
-  // payload.enableAO = true
+  payload.enableAO = true
 
   const blocks = [...new Set(structure.flat(3).map((b) => b.name))]
   const blockData = await queryBlock(blocks)
@@ -112,7 +112,7 @@ export async function compileStructure(payload: StructurePayload) {
     ),
   )
   const blockGetter = (x: number, y: number, z: number) => {
-    return structure[x - xo + 1]?.[y - yo + 1]?.[z - zo + 1] ?? AIR_STATE
+    return structure[y - yo + 1]?.[z - zo + 1]?.[x - xo + 1] ?? AIR_STATE
   }
 
   const layers: Record<TranslucentLevel, FastMergeGeometry<keyof typeof BUFFER_ATTRIBUTES_MAP>> = {
