@@ -228,11 +228,6 @@ export class BlockModelLighter {
     return !!blockData?.occlusion[stateToKey(state)].collision_full
   }
 
-  async _getViewBlocking(state: BlockState) {
-    const blockData = (await queryBlock([state.name]))[state.name]
-    return !!blockData?.occlusion[stateToKey(state)].view_blocking
-  }
-
   async _getShadeBrightness(state: BlockState) {
     const blockData = (await queryBlock([state.name]))[state.name]
     const stateData = blockData?.occlusion[stateToKey(state)]
@@ -325,7 +320,7 @@ export class BlockModelLighter {
     const [mx, my, mz] = moveTowards(bx, by, bz, element.dir)
     const _fetchTranslucent = async (corner: number) => {
       const state = blockGetter(...moveTowards(mx, my, mz, info.corners[corner]))
-      return !(await this._getViewBlocking(state)) || (await this._getLightDampening(state)) === 0
+      return !(await this._getSolidRender(state)) || (await this._getLightDampening(state)) === 0
     }
     const [translucent0, translucent1, translucent2, translucent3] = await Promise.all([
       _fetchTranslucent(0),

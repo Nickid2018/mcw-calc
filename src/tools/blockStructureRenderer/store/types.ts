@@ -79,7 +79,6 @@ export type OcclusionFaceData = { [Key in DirectionName]?: number[][] } & {
   shape_light_occlusion?: boolean
   collision_full?: boolean
   shade_brightness?: number
-  view_blocking?: boolean
   solid_render?: boolean
 }
 
