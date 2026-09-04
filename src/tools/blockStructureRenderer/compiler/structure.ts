@@ -75,12 +75,45 @@ export class FastMergeGeometry<A extends string> {
   }
 }
 
+export class PositionalRandom {
+  private seed: bigint
+
+  constructor(x: number, y: number, z: number) {
+    // Mth.getSeed
+    let positionRelativeSeed = BigInt((x * 3129871) ^ (z * 116129781) ^ y)
+    positionRelativeSeed = positionRelativeSeed ** 2n * 42317861n + positionRelativeSeed * 11n
+    positionRelativeSeed = positionRelativeSeed >> 16n
+    // LegacyRandomSource.setSeed
+    this.seed = (positionRelativeSeed ^ 0x5deece66dn) & 0xffffffffffffn
+  }
+
+  // LegacyRandomSource.next
+  next(bits: number) {
+    const newSeed = (this.seed * 25214903917n + 11n) & 0xffffffffffffn
+    this.seed = newSeed
+    return newSeed >> BigInt(48 - bits)
+  }
+
+  // BitRandomSource.nextInt
+  nextInt(bound: number) {
+    const boundInt = BigInt(bound)
+    if ((boundInt & (boundInt - 1n)) === 0n) {
+      return BigInt.asIntN(32, (boundInt * this.next(31)) >> 31n)
+    }
+    while (true) {
+      const sample = this.next(31)
+      const modulo = sample % boundInt
+      if (sample - modulo + boundInt - 1n < 0n) return BigInt.asIntN(32, modulo)
+    }
+  }
+}
+
 export async function compileStructure(payload: StructurePayload) {
   const { origin, structure } = payload
   const { x: xo, y: yo, z: zo } = origin
   const lighter = new BlockModelLighter()
 
-  payload.enableAO = true
+  // payload.enableAO = true
 
   const blocks = [...new Set(structure.flat(3).map((b) => b.name))]
   const blockData = await queryBlock(blocks)
@@ -128,8 +161,9 @@ export async function compileStructure(payload: StructurePayload) {
         const thisState = structure[y][z][x]
         const collection = keys.get(transformed[y][z][x])!
         const thisOcclusion = occlusions[y][z][x]
+        const positionalRandom = new PositionalRandom(x + xo - 1, y + yo - 1, z + zo - 1)
         const models = collection.map((m) =>
-          'totalWeight' in m ? _selectGroup(x + xo - 1, y + yo - 1, z + zo - 1, m) : m,
+          'totalWeight' in m ? _selectGroup(positionalRandom, m) : m,
         )
         await Promise.all(models.map(validateGeometryModel))
 
@@ -285,22 +319,12 @@ function _translatePlane(positions: THREE.TypedArray, x: number, y: number, z: n
   })
 }
 
-function _selectGroup(x: number, y: number, z: number, group: GeometryModelGroup): GeometryModel {
-  let positionRelativeSeed = (x * 3129871) ^ (z * 116129781) ^ y
-  positionRelativeSeed =
-    positionRelativeSeed * positionRelativeSeed * 42317861 + positionRelativeSeed * 11
-  positionRelativeSeed = positionRelativeSeed >> 16
-
-  // Java LCG algorithm
-  const seedParsed = (positionRelativeSeed ^ 0x5deece66d) & 0xffffffffffff
-  const first = (seedParsed * 25214903917 + 11) & 0xffffffffffff
-  const second = (first * 25214903917 + 11) & 0xffffffffffff
-  const random = Math.abs(((first >> 16) << 16) + (second >> 16)) % group.totalWeight
-
+function _selectGroup(random: PositionalRandom, group: GeometryModelGroup): GeometryModel {
+  const choice = random.nextInt(group.totalWeight)
   let acc = 0
   for (const [i, weight] of group.weights.entries()) {
     acc += weight
-    if (random < acc) return group.models[i]
+    if (choice < acc) return group.models[i]
   }
   return group.models[0]
 }
