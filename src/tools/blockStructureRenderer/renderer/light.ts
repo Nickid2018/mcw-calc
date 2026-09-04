@@ -49,7 +49,6 @@ export class LightUpdater implements Updater {
     this.blockLight = payload.block
     this.skyLight = payload.sky
     this.resolveLight()
-    console.warn(payload)
   }
 
   async getBlockLight(x: number, y: number, z: number) {

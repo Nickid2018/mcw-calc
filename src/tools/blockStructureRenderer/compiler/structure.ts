@@ -21,6 +21,7 @@ import { getOrCreateModelCollection, validateGeometryModel } from './block.ts'
 import { compileLiquid } from './fluid.ts'
 import { DIRECTION_REVERSE, isOcclusion, moveTowards } from './math.ts'
 import { hardcodedSkipRendering } from './occludes.ts'
+import { getHardcodedRenderer } from './special.ts'
 import { hardcodedBlockTint } from './tint.ts'
 import { TransferableGeometry } from './types.ts'
 import { queryBlock } from './worker.ts'
@@ -159,9 +160,20 @@ export async function compileStructure(payload: StructurePayload) {
       const xAxis = xzPlane[z]
       for (let x = 1; x < xAxis.length - 1; x++) {
         const thisState = structure[y][z][x]
+        const [finalX, finalY, finalZ] = [x + xo - 1, y + yo - 1, z + zo - 1]
+        const hardcodedData = getHardcodedRenderer(thisState)
+        if (hardcodedData) {
+          const computedLayers = hardcodedData.renderer([finalX, finalY, finalZ], thisState)
+          if (!computedLayers) continue
+          layers.solid.merge(computedLayers.solid)
+          layers.transparent.merge(computedLayers.transparent)
+          layers.translucent.merge(computedLayers.translucent)
+          if (!hardcodedData.model) continue
+        }
+
         const collection = keys.get(transformed[y][z][x])!
         const thisOcclusion = occlusions[y][z][x]
-        const positionalRandom = new PositionalRandom(x + xo - 1, y + yo - 1, z + zo - 1)
+        const positionalRandom = new PositionalRandom(finalX, finalY, finalZ)
         const models = collection.map((m) =>
           'totalWeight' in m ? _selectGroup(positionalRandom, m) : m,
         )
@@ -169,7 +181,6 @@ export async function compileStructure(payload: StructurePayload) {
 
         await Promise.all(
           models.map(async (model) => {
-            const [finalX, finalY, finalZ] = [x + xo - 1, y + yo - 1, z + zo - 1]
 
             const _pushElement = (
               l: TranslucentLevel,
